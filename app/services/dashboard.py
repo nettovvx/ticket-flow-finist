@@ -130,16 +130,7 @@ def _with_step_deltas(steps: list[dict[str, object]]) -> list[dict[str, object]]
     return enriched
 
 
-def _ticket_case_steps(ticket: Document, realizations: list[Document]) -> list[dict[str, object]]:
-    realization_step = "pending"
-    realization_occurred_at: datetime | None = None
-    if realizations:
-        realization_statuses = ["error" if realization.status == "error" else "success" for realization in realizations]
-        realization_step = _combine_statuses(realization_statuses)
-        realization_timestamps = [item.occurred_at for item in realizations if item.occurred_at]
-        if realization_timestamps:
-            realization_occurred_at = min(realization_timestamps)
-
+def _ticket_case_steps(ticket: Document) -> list[dict[str, object]]:
     steps = [
         {
             "code": "sirena_received",
@@ -156,26 +147,20 @@ def _ticket_case_steps(ticket: Document, realizations: list[Document]) -> list[d
         {
             "code": "ticket_seen_by_mom",
             "label": "MOM обработал билет",
-            "status": "success" if realizations else _event_status(ticket, "ticket_seen_by_mom"),
-            "occurred_at": _event_occurred_at(ticket, "ticket_seen_by_mom") or realization_occurred_at,
+            "status": _event_status(ticket, "ticket_seen_by_mom"),
+            "occurred_at": _event_occurred_at(ticket, "ticket_seen_by_mom"),
         },
         {
             "code": "realization_received_from_mom",
             "label": "MOM вернул реализацию",
-            "status": realization_step,
-            "occurred_at": realization_occurred_at,
+            "status": _event_status(ticket, "realization_received_from_mom"),
+            "occurred_at": _event_occurred_at(ticket, "realization_received_from_mom"),
         },
         {
             "code": "realization_copied_to_smb",
             "label": "Реализация отправлена в 1С",
             "status": _event_status(ticket, "realization_copied_to_smb"),
             "occurred_at": _event_occurred_at(ticket, "realization_copied_to_smb"),
-        },
-        {
-            "code": "realization_accepted_by_1c",
-            "label": "1С подтвердила загрузку",
-            "status": _event_status(ticket, "realization_accepted_by_1c"),
-            "occurred_at": _event_occurred_at(ticket, "realization_accepted_by_1c"),
         },
     ]
     return _with_step_deltas(steps)
@@ -284,7 +269,7 @@ def build_ticket_case_listing(
                 "ticket_state": state,
                 "realizations": related_realizations,
                 "group_status": group_status,
-                "steps": _ticket_case_steps(ticket, related_realizations),
+                "steps": _ticket_case_steps(ticket),
                 "last_activity_at": max((document.occurred_at for document in group_documents if document.occurred_at), default=ticket.created_at),
             }
         )
@@ -498,7 +483,7 @@ def load_document_with_context(db: Session, document_id: str) -> dict[str, objec
                 .options(selectinload(Document.payload), selectinload(Document.events))
             ).all()
 
-    detail_steps = _ticket_case_steps(root_ticket, linked_realizations) if root_ticket.doc_type == "ticket" else []
+    detail_steps = _ticket_case_steps(root_ticket) if root_ticket.doc_type == "ticket" else []
     return {
         "document": document,
         "root_ticket": root_ticket,

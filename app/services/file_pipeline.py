@@ -20,6 +20,13 @@ from app.models.document import Document, DocumentEvent, DocumentLink, DocumentP
 logger = logging.getLogger(__name__)
 MOM_REF_PATTERN = re.compile(r"[MМ][OО][MМ]-\d{7}")
 REALIZATION_NS = {"x": "http://www.gridnine.com/export/xml"}
+REQUIRED_TICKET_SUCCESS_STEPS = (
+    "sirena_received",
+    "ticket_copied_to_ftp",
+    "ticket_seen_by_mom",
+    "realization_received_from_mom",
+    "realization_copied_to_smb",
+)
 
 
 def _safe_float(value: str | None) -> float | None:
@@ -116,6 +123,17 @@ def _append_event(
             meta_json=meta_json,
         )
     )
+
+
+def _has_step_status(document: Document, step_code: str, status: str) -> bool:
+    return any(item.step_code == step_code and item.status == status for item in document.events)
+
+
+def _latest_step_time(document: Document, step_code: str) -> datetime | None:
+    timestamps = [item.occurred_at for item in document.events if item.step_code == step_code and item.occurred_at]
+    if not timestamps:
+        return None
+    return max(timestamps)
 
 
 def _ensure_link(
@@ -240,6 +258,21 @@ class FilePipelineService:
         document.payload = payload
         return payload
 
+    def _sync_ticket_status(self, ticket: Document) -> None:
+        if ticket.status == "error":
+            ticket.completed_at = None
+            return
+
+        if all(_has_step_status(ticket, step_code, "success") for step_code in REQUIRED_TICKET_SUCCESS_STEPS):
+            ticket.status = "success"
+            ticket.current_step = "realization_copied_to_smb"
+            ticket.error_message = None
+            ticket.completed_at = _latest_step_time(ticket, "realization_copied_to_smb") or datetime.now(timezone.utc)
+            return
+
+        ticket.status = "in_progress"
+        ticket.completed_at = None
+
     def _parse_ticket_payload(self, path: Path) -> dict[str, object]:
         root = ET.fromstring(path.read_text(encoding="utf-8"))
         ticket_node = root.find("TICKET")
@@ -346,6 +379,7 @@ class FilePipelineService:
             ticket.current_step = "realization_received_from_mom"
             if realisation.status == "error":
                 ticket.status = "error"
+                ticket.completed_at = None
                 ticket.error_message = "Связанная реализация MOM помечена ошибкой"
                 _append_event(
                     ticket,
@@ -355,9 +389,7 @@ class FilePipelineService:
                     occurred_at=occurred_at,
                 )
             else:
-                if ticket.status != "error":
-                    ticket.status = "success"
-                    ticket.error_message = None
+                ticket.error_message = None
                 _append_event(
                     ticket,
                     step_code="realization_received_from_mom",
@@ -365,6 +397,37 @@ class FilePipelineService:
                     message="Найдена связанная реализация по PNR",
                     occurred_at=occurred_at,
                 )
+                self._sync_ticket_status(ticket)
+
+    def _mark_realisation_copied_for_tickets(self, db: Session, realisation: Document, occurred_at: datetime | None) -> None:
+        ticket_ids = db.scalars(
+            select(DocumentLink.from_document_id).where(
+                DocumentLink.to_document_id == realisation.id,
+                DocumentLink.link_type == "ticket_to_realization",
+            )
+        ).all()
+        if not ticket_ids:
+            return
+
+        tickets = db.scalars(
+            select(Document)
+            .where(Document.id.in_(ticket_ids))
+            .options(selectinload(Document.events))
+        ).all()
+
+        for ticket in tickets:
+            _append_event(
+                ticket,
+                step_code="realization_copied_to_smb",
+                status="success",
+                message="Реализация перемещена в каталог 1C",
+                occurred_at=occurred_at,
+                meta_json={"realization_id": realisation.id, "realization_file_name": realisation.file_name},
+            )
+            ticket.current_step = "realization_copied_to_smb"
+            if ticket.status != "error":
+                ticket.error_message = None
+            self._sync_ticket_status(ticket)
 
     def _link_payment_to_realisation(self, db: Session, payment: Document, mom_ref: str) -> None:
         realisation = db.scalar(
@@ -395,7 +458,6 @@ class FilePipelineService:
         document.current_step = "ticket_seen_by_mom"
         if success:
             if document.status != "error":
-                document.status = "success"
                 document.error_message = None
             _append_event(
                 document,
@@ -404,8 +466,10 @@ class FilePipelineService:
                 message="Билет обработан MOM (файл в processed)",
                 occurred_at=_file_created_at(file_path),
             )
+            self._sync_ticket_status(document)
         else:
             document.status = "error"
+            document.completed_at = None
             document.error_message = "MOM вернул билет в error"
             _append_event(
                 document,
@@ -469,6 +533,7 @@ class FilePipelineService:
                 document.occurred_at = occurred_at
                 document.current_step = "ticket_copied_to_ftp"
                 document.status = "in_progress"
+                document.completed_at = None
                 document.error_message = None
 
                 payload_data = self._parse_ticket_payload(moved_file)
@@ -500,6 +565,7 @@ class FilePipelineService:
                     message="Билет перемещен в FTP tickets",
                     occurred_at=occurred_at,
                 )
+                self._sync_ticket_status(document)
                 db.commit()
             except Exception:
                 db.rollback()
@@ -575,6 +641,7 @@ class FilePipelineService:
                 if document.status != "error":
                     document.current_step = "realization_copied_to_smb"
                     document.status = "success"
+                    self._mark_realisation_copied_for_tickets(db, document, _file_created_at(moved_file))
                 db.commit()
             except Exception:
                 db.rollback()
@@ -665,4 +732,3 @@ class FilePipelineService:
             self._process_realisations(db)
             self._process_payments(db)
             self._process_payment_results(db)
-
