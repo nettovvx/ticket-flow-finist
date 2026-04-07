@@ -34,8 +34,8 @@ services:
         source: ${HOST_FTP_TICKETS_DIR:-/srv/ftp/tickets}
         target: /srv/ftp/tickets
       - type: bind
-        source: ${HOST_FTP_REALISATIONS_DIR:-/srv/ftp/realisations}
-        target: /srv/ftp/realisations
+        source: ${HOST_FTP_REALISATIONS_DIR:-/srv/ftp/realizations}
+        target: /srv/ftp/realizations
       - type: bind
         source: ${HOST_FTP_PAYMENTS_DIR:-/srv/ftp/payments}
         target: /srv/ftp/payments

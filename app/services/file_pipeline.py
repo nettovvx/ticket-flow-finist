@@ -77,6 +77,10 @@ def _utc_now() -> datetime:
 def _clamp_future_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
+
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        value = value.replace(tzinfo=timezone.utc)
+
     now = _utc_now()
     return value if value <= now else now
 
@@ -95,7 +99,10 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return _clamp_future_datetime(datetime.fromisoformat(value.replace("Z", "+00:00")))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return _clamp_future_datetime(parsed)
     except ValueError:
         return None
 
