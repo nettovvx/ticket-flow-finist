@@ -39,6 +39,10 @@ class Settings(BaseSettings):
 
     ftp_realisations_dir: Path = Field(default=Path("/srv/ftp/realisations"), alias="FTP_REALISATIONS_DIR")
     onec_realisations_target_dir: Path = Field(default=Path("/mnt/1c-gds"), alias="ONEC_REALISATIONS_TARGET_DIR")
+    onec_realisations_archive_dir: Path = Field(default=Path("/mnt/1c-gds/archive"), alias="ONEC_REALISATIONS_ARCHIVE_DIR")
+    onec_realisations_bad_dir: Path = Field(default=Path("/mnt/1c-gds/bad"), alias="ONEC_REALISATIONS_BAD_DIR")
+    onec_realisations_del_bad_dir: Path = Field(default=Path("/mnt/1c-gds/del_bad"), alias="ONEC_REALISATIONS_DEL_BAD_DIR")
+    onec_realisations_empty_dir: Path = Field(default=Path("/mnt/1c-gds/empty"), alias="ONEC_REALISATIONS_EMPTY_DIR")
 
     onec_payments_source_dir: Path = Field(default=Path("/mnt/1c-payments"), alias="ONEC_PAYMENTS_SOURCE_DIR")
     ftp_payments_dir: Path = Field(default=Path("/srv/ftp/payments"), alias="FTP_PAYMENTS_DIR")
