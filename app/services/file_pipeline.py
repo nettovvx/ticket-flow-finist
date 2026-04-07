@@ -6,6 +6,7 @@ import logging
 import re
 import shutil
 import xml.etree.ElementTree as ET
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -195,6 +196,8 @@ class FilePipelineService:
         self._task: asyncio.Task | None = None
         self._stopped = asyncio.Event()
         self._stopped.set()
+        self._queued_files: dict[str, deque[tuple[Path, tuple[int, int]]]] = {}
+        self._processed_files: dict[str, dict[str, tuple[int, int]]] = {}
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -217,7 +220,7 @@ class FilePipelineService:
         logger.info("File pipeline started")
         while True:
             try:
-                self._process_once()
+                await asyncio.to_thread(self._process_once)
             except Exception:
                 logger.exception("File pipeline iteration failed")
             await asyncio.sleep(max(1, self.settings.file_scan_interval_sec))
@@ -229,10 +232,60 @@ class FilePipelineService:
         except FileNotFoundError:
             return False
 
-    def _iter_xml_files(self, folder: Path) -> list[Path]:
+    def _file_signature(self, path: Path) -> tuple[int, int]:
+        stat = path.stat()
+        return stat.st_size, stat.st_mtime_ns
+
+    def _folder_key(self, folder: Path) -> str:
+        return str(folder)
+
+    def _queue_folder_candidates(self, folder: Path) -> None:
+        folder_key = self._folder_key(folder)
+        if self._queued_files.get(folder_key):
+            return
         if not folder.exists() or not folder.is_dir():
-            return []
-        return sorted([item for item in folder.iterdir() if item.is_file() and item.suffix.lower() == ".xml"])
+            return
+
+        known_files = self._processed_files.setdefault(folder_key, {})
+        queued = self._queued_files.setdefault(folder_key, deque())
+        queued_names = {item[0].name for item in queued}
+
+        for item in folder.iterdir():
+            if not item.is_file() or item.suffix.lower() != ".xml":
+                continue
+            if not self._is_stable(item):
+                continue
+            try:
+                signature = self._file_signature(item)
+            except FileNotFoundError:
+                continue
+            if known_files.get(item.name) == signature or item.name in queued_names:
+                continue
+            queued.append((item, signature))
+            queued_names.add(item.name)
+
+    def _iter_xml_files(self, folder: Path) -> list[Path]:
+        self._queue_folder_candidates(folder)
+        folder_key = self._folder_key(folder)
+        queued = self._queued_files.setdefault(folder_key, deque())
+        batch_size = max(1, self.settings.file_scan_batch_size)
+        batch: list[Path] = []
+
+        while queued and len(batch) < batch_size:
+            path, _ = queued.popleft()
+            if not path.exists():
+                continue
+            batch.append(path)
+
+        return batch
+
+    def _mark_file_processed(self, folder: Path, path: Path) -> None:
+        folder_key = self._folder_key(folder)
+        try:
+            signature = self._file_signature(path)
+        except FileNotFoundError:
+            return
+        self._processed_files.setdefault(folder_key, {})[path.name] = signature
 
     def _move_file(self, source: Path, destination_dir: Path) -> Path:
         destination_dir.mkdir(parents=True, exist_ok=True)
@@ -263,11 +316,7 @@ class FilePipelineService:
         )
         db.add(document)
         db.flush()
-        return db.scalar(
-            select(Document)
-            .where(Document.id == document.id)
-            .options(selectinload(Document.payload), selectinload(Document.events), selectinload(Document.outgoing_links))
-        )
+        return document
 
     def _touch_file_meta(self, document: Document, path: Path) -> None:
         document.file_path = str(path)
@@ -687,6 +736,7 @@ class FilePipelineService:
             try:
                 self._update_ticket_result(db, file_path, success=True)
                 db.commit()
+                self._mark_file_processed(self.settings.ftp_tickets_processed_dir, file_path)
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process ticket processed-file: %s", file_path)
@@ -695,6 +745,7 @@ class FilePipelineService:
             try:
                 self._update_ticket_result(db, file_path, success=False)
                 db.commit()
+                self._mark_file_processed(self.settings.ftp_tickets_error_dir, file_path)
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process ticket error-file: %s", file_path)
@@ -761,6 +812,7 @@ class FilePipelineService:
                     document.status = "success"
                     self._mark_realisation_copied_for_tickets(db, document, moved_occurred_at)
                 db.commit()
+                self._mark_file_processed(self.settings.onec_realisations_target_dir, moved_file)
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process realization file: %s", source_file)
@@ -826,6 +878,7 @@ class FilePipelineService:
                 if document.status != "error":
                     self._mark_realisation_copied_for_tickets(db, document, occurred_at)
                 db.commit()
+                self._mark_file_processed(self.settings.onec_realisations_target_dir, file_path)
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process existing realization in 1C target: %s", file_path)
@@ -880,6 +933,7 @@ class FilePipelineService:
                         result_code=result_code,
                     )
                     db.commit()
+                    self._mark_file_processed(folder, file_path)
                 except Exception:
                     db.rollback()
                     logger.exception("Failed to process realization result-file: %s", file_path)
@@ -950,6 +1004,7 @@ class FilePipelineService:
             try:
                 self._update_payment_result(db, file_path, success=True)
                 db.commit()
+                self._mark_file_processed(self.settings.ftp_payments_processed_dir, file_path)
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process payment processed-file: %s", file_path)
@@ -958,6 +1013,7 @@ class FilePipelineService:
             try:
                 self._update_payment_result(db, file_path, success=False)
                 db.commit()
+                self._mark_file_processed(self.settings.ftp_payments_error_dir, file_path)
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process payment error-file: %s", file_path)
