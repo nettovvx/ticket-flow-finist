@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="tabs-row">
+  <a class="tab-link {% if current_tab == 'tickets' %}active{% endif %}" href="/documents/tickets">Билеты и реализации</a>
+  <a class="tab-link {% if current_tab == 'payments' %}active{% endif %}" href="/documents/payments">Платежки</a>
+</section>
+
+<section class="hero-panel">
+  <div>
+    <p class="eyebrow">Рабочий список</p>
+    <h1>{{ page_title }}</h1>
+    <p>По умолчанию показаны только документы в работе и документы с ошибками. Успешные записи доступны через фильтры и период.</p>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <span>В работе</span>
+      <strong>{{ counters.get('in_progress', 0) }}</strong>
+    </div>
+    <div class="stat-card error">
+      <span>С ошибкой</span>
+      <strong>{{ counters.get('error', 0) }}</strong>
+    </div>
+    <div class="stat-card success">
+      <span>Успешно</span>
+      <strong>{{ counters.get('success', 0) }}</strong>
+    </div>
+    <div class="stat-card neutral">
+      <span>Скрыто</span>
+      <strong>{{ counters.get('hidden', 0) }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="filters-panel">
+  <form class="filters-form" method="get">
+    <div class="field-group field-group-wide">
+      <label for="q">Поиск</label>
+      <input id="q" name="q" value="{{ filters.q }}" placeholder="ФИО, номер билета, PNR, MOM, платежка, контрагент">
+    </div>
+    <div class="field-group">
+      <label for="view">Режим</label>
+      <select id="view" name="view">
+        <option value="active" {% if filters.view == 'active' %}selected{% endif %}>В работе + ошибки</option>
+        <option value="errors" {% if filters.view == 'errors' %}selected{% endif %}>Только ошибки</option>
+        <option value="success" {% if filters.view == 'success' %}selected{% endif %}>Только успешные</option>
+        <option value="hidden" {% if filters.view == 'hidden' %}selected{% endif %}>Скрытые</option>
+        <option value="all" {% if filters.view == 'all' %}selected{% endif %}>Все</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label for="status_filter">Статус</label>
+      <select id="status_filter" name="status_filter">
+        <option value="">Все</option>
+        <option value="in_progress" {% if filters.status_filter == 'in_progress' %}selected{% endif %}>В работе</option>
+        <option value="error" {% if filters.status_filter == 'error' %}selected{% endif %}>Ошибка</option>
+        <option value="success" {% if filters.status_filter == 'success' %}selected{% endif %}>Успешно</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label for="date_from">С</label>
+      <input id="date_from" type="date" name="date_from" value="{{ filters.date_from }}">
+    </div>
+    <div class="field-group">
+      <label for="date_to">По</label>
+      <input id="date_to" type="date" name="date_to" value="{{ filters.date_to }}">
+    </div>
+    <div class="field-group actions">
+      <button class="primary-button" type="submit">Применить</button>
+    </div>
+  </form>
+</section>
+
+<section class="documents-list">
+  {% if rows %}
+    {% for document, payload, user_state in rows %}
+    <article class="document-card">
+      <div class="document-head">
+        <div>
+          <div class="document-meta-line">
+            <span class="status-badge status-{{ document.status }}">{{ document.status }}</span>
+            <span class="type-badge">{{ document.doc_type }}</span>
+            {% if document.current_step %}
+            <span class="step-chip">{{ document.current_step }}</span>
+            {% endif %}
+          </div>
+          <h2>{{ document.title or document.file_name }}</h2>
+          <p class="muted">{{ document.file_name }}</p>
+        </div>
+        <div class="document-actions">
+          <a class="ghost-button" href="/documents/{{ document.id }}">Открыть</a>
+          {% if document.status == "error" and not (user_state and user_state.is_hidden) %}
+          <form method="post" action="/documents/{{ document.id }}/hide">
+            <input type="hidden" name="reason" value="Просмотрено оператором">
+            <button class="ghost-button warning" type="submit">Скрыть ошибку</button>
+          </form>
+          {% endif %}
+          {% if user_state and user_state.is_hidden %}
+          <form method="post" action="/documents/{{ document.id }}/unhide">
+            <button class="ghost-button" type="submit">Вернуть</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="document-grid">
+        <div>
+          <span class="label">ФИО</span>
+          <strong>{{ payload.passenger_name if payload and payload.passenger_name else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">Билет</span>
+          <strong>{{ payload.ticket_number if payload and payload.ticket_number else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">PNR</span>
+          <strong>{{ payload.pnr if payload and payload.pnr else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">MOM</span>
+          <strong>{{ payload.mom_number if payload and payload.mom_number else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">Контрагент</span>
+          <strong>{{ payload.client_name if payload and payload.client_name else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">Сумма</span>
+          <strong>
+            {% if payload and payload.amount is not none %}
+              {{ payload.amount }} {{ payload.currency or "" }}
+            {% else %}
+              —
+            {% endif %}
+          </strong>
+        </div>
+      </div>
+
+      {% if document.error_message %}
+      <div class="error-panel">
+        <span>Ошибка</span>
+        <p>{{ document.error_message }}</p>
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <h2>Документы не найдены</h2>
+      <p>Когда появятся импортированные XML или активные ошибки, они сразу отобразятся в этом списке.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}
+

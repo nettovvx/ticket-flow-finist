@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-head">
+      <div class="brand-mark large">TF</div>
+      <h1>Вход в TicketFlow</h1>
+      <p>Управление билетами, реализациями и платежками в одном окне.</p>
+    </div>
+    <form class="auth-form" action="/login" method="post">
+      <label>
+        <span>Логин</span>
+        <input type="text" name="username" autocomplete="username" required>
+      </label>
+      <label>
+        <span>Пароль</span>
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button class="primary-button" type="submit">Войти</button>
+    </form>
+  </div>
+</section>
+{% endblock %}
+

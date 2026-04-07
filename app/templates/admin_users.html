@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="detail-header">
+  <div>
+    <p class="eyebrow">Администрирование</p>
+    <h1>Пользователи</h1>
+    <p>Только администраторы могут создавать и управлять учетными записями.</p>
+  </div>
+</section>
+
+<section class="admin-layout">
+  <article class="detail-card">
+    <h2>Создать учетную запись</h2>
+    <form class="stack-form" method="post" action="/admin/users">
+      <label>
+        <span>Логин</span>
+        <input name="username" required>
+      </label>
+      <label>
+        <span>Пароль</span>
+        <input name="password" type="password" required>
+      </label>
+      <label>
+        <span>Роль</span>
+        <select name="role" required>
+          <option value="user">Пользователь</option>
+          <option value="admin">Администратор</option>
+        </select>
+      </label>
+      <button class="primary-button" type="submit">Создать</button>
+    </form>
+  </article>
+
+  <article class="detail-card">
+    <h2>Список пользователей</h2>
+    <div class="users-list">
+      {% for user_item in users %}
+      <div class="user-row">
+        <div>
+          <strong>{{ user_item.username }}</strong>
+          <p class="muted">Роль: {{ user_item.role }}</p>
+        </div>
+        <div class="role-pill">{{ "active" if user_item.is_active else "inactive" }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+{% endblock %}

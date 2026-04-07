@@ -1,0 +1,19 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+frontend/node_modules/
+frontend/dist/
+
+app/static/web/
+
+# local/runtime data
+*.db
+*.sqlite*
+ticketflow.db
+
+# ticket payloads and integrations data
+*.xml
+2025-11-13/

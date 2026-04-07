@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="tabs-row">
+  <a class="tab-link {% if current_tab == 'tickets' %}active{% endif %}" href="/documents/tickets">Билеты и реализации</a>
+  <a class="tab-link {% if current_tab == 'payments' %}active{% endif %}" href="/documents/payments">Платежки</a>
+</section>
+
+<section class="hero-panel">
+  <div>
+    <p class="eyebrow">Маршрут документа</p>
+    <h1>{{ page_title }}</h1>
+    <p>Основной список теперь построен вокруг билета. Каждая карточка показывает сам билет, найденные реализации и полный путь от Sirena до 1С.</p>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <span>В работе</span>
+      <strong>{{ counters.get('in_progress', 0) }}</strong>
+    </div>
+    <div class="stat-card error">
+      <span>С ошибкой</span>
+      <strong>{{ counters.get('error', 0) }}</strong>
+    </div>
+    <div class="stat-card success">
+      <span>Успешно</span>
+      <strong>{{ counters.get('success', 0) }}</strong>
+    </div>
+    <div class="stat-card neutral">
+      <span>Скрыто</span>
+      <strong>{{ counters.get('hidden', 0) }}</strong>
+    </div>
+  </div>
+</section>
+
+<section class="filters-panel">
+  <form class="filters-form" method="get">
+    <div class="field-group field-group-wide">
+      <label for="q">Поиск</label>
+      <input id="q" name="q" value="{{ filters.q }}" placeholder="ФИО, билет, PNR, MOM, контрагент">
+    </div>
+    <div class="field-group">
+      <label for="view">Режим</label>
+      <select id="view" name="view">
+        <option value="active" {% if filters.view == 'active' %}selected{% endif %}>В работе + ошибки</option>
+        <option value="errors" {% if filters.view == 'errors' %}selected{% endif %}>Только ошибки</option>
+        <option value="success" {% if filters.view == 'success' %}selected{% endif %}>Только успешные</option>
+        <option value="hidden" {% if filters.view == 'hidden' %}selected{% endif %}>Скрытые</option>
+        <option value="all" {% if filters.view == 'all' %}selected{% endif %}>Все</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label for="status_filter">Статус</label>
+      <select id="status_filter" name="status_filter">
+        <option value="">Все</option>
+        <option value="in_progress" {% if filters.status_filter == 'in_progress' %}selected{% endif %}>В работе</option>
+        <option value="error" {% if filters.status_filter == 'error' %}selected{% endif %}>Ошибка</option>
+        <option value="success" {% if filters.status_filter == 'success' %}selected{% endif %}>Успешно</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <label for="date_from">С</label>
+      <input id="date_from" type="date" name="date_from" value="{{ filters.date_from }}">
+    </div>
+    <div class="field-group">
+      <label for="date_to">По</label>
+      <input id="date_to" type="date" name="date_to" value="{{ filters.date_to }}">
+    </div>
+    <div class="field-group actions">
+      <button class="primary-button" type="submit">Применить</button>
+    </div>
+  </form>
+</section>
+
+<section class="documents-list">
+  {% if ticket_cases %}
+    {% for case in ticket_cases %}
+    <article class="document-card ticket-case-card">
+      <div class="document-head">
+        <div>
+          <div class="document-meta-line">
+            <span class="status-badge status-{{ case.group_status }}">{{ case.group_status }}</span>
+            <span class="type-badge">ticket case</span>
+            <span class="step-chip">{{ case.ticket.current_step or "маршрут" }}</span>
+          </div>
+          <h2>{{ case.ticket.payload.passenger_name if case.ticket.payload and case.ticket.payload.passenger_name else case.ticket.title or case.ticket.file_name }}</h2>
+          <p class="muted">Билет: {{ case.ticket.payload.ticket_number if case.ticket.payload and case.ticket.payload.ticket_number else "—" }} · PNR: {{ case.ticket.payload.pnr if case.ticket.payload and case.ticket.payload.pnr else "—" }}</p>
+        </div>
+        <div class="document-actions">
+          <a class="ghost-button" href="/documents/{{ case.ticket.id }}">Открыть маршрут</a>
+          {% if case.group_status == "error" and not (case.ticket_state and case.ticket_state.is_hidden) %}
+          <form method="post" action="/documents/{{ case.ticket.id }}/hide">
+            <input type="hidden" name="reason" value="Просмотрено оператором">
+            <button class="ghost-button warning" type="submit">Скрыть ошибку</button>
+          </form>
+          {% endif %}
+          {% if case.ticket_state and case.ticket_state.is_hidden %}
+          <form method="post" action="/documents/{{ case.ticket.id }}/unhide">
+            <button class="ghost-button" type="submit">Вернуть</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="document-grid compact">
+        <div>
+          <span class="label">ФИО</span>
+          <strong>{{ case.ticket.payload.passenger_name if case.ticket.payload and case.ticket.payload.passenger_name else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">Номер билета</span>
+          <strong>{{ case.ticket.payload.ticket_number if case.ticket.payload and case.ticket.payload.ticket_number else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">PNR</span>
+          <strong>{{ case.ticket.payload.pnr if case.ticket.payload and case.ticket.payload.pnr else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">Реализаций найдено</span>
+          <strong>{{ case.realizations|length }}</strong>
+        </div>
+      </div>
+
+      <div class="flow-strip">
+        {% for step in case.steps %}
+        <div class="flow-step status-{{ step.status }}">
+          <span class="flow-dot"></span>
+          <strong>{{ step.label }}</strong>
+          <small>{{ step.status }}</small>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="linked-section">
+        <div class="linked-section-title">Связанные реализации</div>
+        {% if case.realizations %}
+        <div class="linked-realizations">
+          {% for realization in case.realizations %}
+          <a class="linked-chip status-{{ realization.status }}" href="/documents/{{ realization.id }}">
+            <span>{{ realization.payload.mom_number if realization.payload and realization.payload.mom_number else realization.title or realization.file_name }}</span>
+            <small>{{ realization.payload.client_name if realization.payload and realization.payload.client_name else "без контрагента" }}</small>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted">Связанная реализация пока не найдена. Карточка остается в работе до появления ответа MOM.</p>
+        {% endif %}
+      </div>
+
+      {% if case.ticket.error_message %}
+      <div class="error-panel">
+        <span>Ошибка</span>
+        <p>{{ case.ticket.error_message }}</p>
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <h2>Билетных кейсов не найдено</h2>
+      <p>Попробуйте изменить фильтры или период.</p>
+    </div>
+  {% endif %}
+</section>
+
+{% if orphan_realizations %}
+<section class="orphan-section">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Отдельный блок</p>
+      <h2>Реализации без найденного билета</h2>
+    </div>
+    <p class="muted">Сюда попадают реализации, которые пока не удалось привязать к билету. Они не должны смешиваться с основным списком билетных маршрутов.</p>
+  </div>
+  <div class="documents-list">
+    {% for orphan in orphan_realizations %}
+    <article class="document-card orphan-card">
+      <div class="document-head">
+        <div>
+          <div class="document-meta-line">
+            <span class="status-badge status-{{ orphan.realization.status }}">{{ orphan.realization.status }}</span>
+            <span class="type-badge">orphan realization</span>
+          </div>
+          <h2>{{ orphan.realization.payload.mom_number if orphan.realization.payload and orphan.realization.payload.mom_number else orphan.realization.title or orphan.realization.file_name }}</h2>
+          <p class="muted">{{ orphan.realization.payload.client_name if orphan.realization.payload and orphan.realization.payload.client_name else "Контрагент не найден" }}</p>
+        </div>
+        <div class="document-actions">
+          <a class="ghost-button" href="/documents/{{ orphan.realization.id }}">Открыть</a>
+        </div>
+      </div>
+      <div class="document-grid compact">
+        <div>
+          <span class="label">MOM</span>
+          <strong>{{ orphan.realization.payload.mom_number if orphan.realization.payload and orphan.realization.payload.mom_number else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">PNR</span>
+          <strong>{{ orphan.realization.payload.pnr if orphan.realization.payload and orphan.realization.payload.pnr else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">Контрагент</span>
+          <strong>{{ orphan.realization.payload.client_name if orphan.realization.payload and orphan.realization.payload.client_name else "—" }}</strong>
+        </div>
+        <div>
+          <span class="label">Статус</span>
+          <strong>{{ orphan.realization.status }}</strong>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

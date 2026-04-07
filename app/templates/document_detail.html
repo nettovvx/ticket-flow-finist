@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="detail-header">
+  <div>
+    <p class="eyebrow">Полный маршрут</p>
+    <h1>{{ root_ticket.title or root_ticket.file_name }}</h1>
+    <p class="muted">Карточка показывает билет как главный объект и все связанные документы по пути от Sirena до 1С.</p>
+  </div>
+  <div class="detail-actions">
+    <a class="ghost-button" href="javascript:history.back()">Назад</a>
+  </div>
+</section>
+
+<section class="detail-card full route-summary">
+  <div class="document-grid compact">
+    <div>
+      <span class="label">ФИО</span>
+      <strong>{{ root_ticket.payload.passenger_name if root_ticket.payload else "—" }}</strong>
+    </div>
+    <div>
+      <span class="label">Номер билета</span>
+      <strong>{{ root_ticket.payload.ticket_number if root_ticket.payload else "—" }}</strong>
+    </div>
+    <div>
+      <span class="label">PNR</span>
+      <strong>{{ root_ticket.payload.pnr if root_ticket.payload else "—" }}</strong>
+    </div>
+    <div>
+      <span class="label">Реализаций</span>
+      <strong>{{ linked_realizations|length }}</strong>
+    </div>
+  </div>
+
+  {% if steps %}
+  <div class="flow-strip large">
+    {% for step in steps %}
+    <div class="flow-step status-{{ step.status }}">
+      <span class="flow-dot"></span>
+      <strong>{{ step.label }}</strong>
+      <small>{{ step.status }}</small>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="detail-grid">
+  <article class="detail-card">
+    <h2>Билет</h2>
+    <dl class="detail-list">
+      <div><dt>Источник</dt><dd>{{ root_ticket.source_system }}</dd></div>
+      <div><dt>Статус</dt><dd>{{ root_ticket.status }}</dd></div>
+      <div><dt>Текущий шаг</dt><dd>{{ root_ticket.current_step or "—" }}</dd></div>
+      <div><dt>Файл</dt><dd>{{ root_ticket.file_name }}</dd></div>
+      <div><dt>Путь</dt><dd class="mono">{{ root_ticket.file_path or "—" }}</dd></div>
+      <div><dt>Business key</dt><dd>{{ root_ticket.business_key or "—" }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="detail-card">
+    <h2>Связанные реализации</h2>
+    {% if linked_realizations %}
+    <div class="detail-linked-list">
+      {% for realization in linked_realizations %}
+      <a class="linked-chip status-{{ realization.status }}" href="/documents/{{ realization.id }}">
+        <span>{{ realization.payload.mom_number if realization.payload and realization.payload.mom_number else realization.title or realization.file_name }}</span>
+        <small>{{ realization.payload.client_name if realization.payload and realization.payload.client_name else "без контрагента" }}</small>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">Связанных реализаций пока нет.</p>
+    {% endif %}
+  </article>
+
+  <article class="detail-card full">
+    <h2>Платежки по связанным реализациям</h2>
+    {% if linked_payments %}
+    <div class="detail-linked-list">
+      {% for payment in linked_payments %}
+      <a class="linked-chip status-{{ payment.status }}" href="/documents/{{ payment.id }}">
+        <span>{{ payment.payload.payment_number if payment.payload and payment.payload.payment_number else payment.title or payment.file_name }}</span>
+        <small>{{ payment.payload.mom_number if payment.payload and payment.payload.mom_number else "без MOM" }}</small>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">Платежки по связанным реализациям пока не найдены.</p>
+    {% endif %}
+  </article>
+
+  <article class="detail-card full">
+    <h2>Таймлайн текущего документа</h2>
+    {% if document.events %}
+    <div class="timeline">
+      {% for event in document.events|sort(attribute='occurred_at') %}
+      <div class="timeline-item">
+        <div class="timeline-status status-{{ event.status }}">{{ event.status }}</div>
+        <div>
+          <strong>{{ event.step_code }}</strong>
+          <p>{{ event.message or "Без комментария" }}</p>
+          <small>{{ event.occurred_at or "Время не зафиксировано" }}</small>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">События для документа пока не загружены.</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

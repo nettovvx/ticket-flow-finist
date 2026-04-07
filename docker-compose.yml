@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ticketflow-postgres
+    environment:
+      POSTGRES_DB: ticketflow
+      POSTGRES_USER: ticketflow
+      POSTGRES_PASSWORD: ticketflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketflow -d ticketflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ticketflow-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - type: bind
+        source: ${HOST_TICKET_INBOX_DIR:-/opt/sirena-olt-client/received-files}
+        target: /opt/sirena-olt-client/received-files
+      - type: bind
+        source: ${HOST_FTP_TICKETS_DIR:-/srv/ftp/tickets}
+        target: /srv/ftp/tickets
+      - type: bind
+        source: ${HOST_FTP_REALISATIONS_DIR:-/srv/ftp/realisations}
+        target: /srv/ftp/realisations
+      - type: bind
+        source: ${HOST_FTP_PAYMENTS_DIR:-/srv/ftp/payments}
+        target: /srv/ftp/payments
+      - type: bind
+        source: ${HOST_ONEC_REALISATIONS_TARGET_DIR:-/mnt/1c-gds}
+        target: /mnt/1c-gds
+      - type: bind
+        source: ${HOST_ONEC_PAYMENTS_SOURCE_DIR:-/mnt/1c-payments}
+        target: /mnt/1c-payments
+
+volumes:
+  pgdata:
