@@ -438,32 +438,6 @@ class FilePipelineService:
                 ticket.error_message = None
             self._sync_ticket_status(ticket)
 
-    def _mark_realisation_accepted_for_tickets(self, db: Session, realisation: Document, occurred_at: datetime | None) -> None:
-        ticket_ids = db.scalars(
-            select(DocumentLink.from_document_id).where(
-                DocumentLink.to_document_id == realisation.id,
-                DocumentLink.link_type == "ticket_to_realization",
-            )
-        ).all()
-        if not ticket_ids:
-            return
-
-        tickets = db.scalars(
-            select(Document)
-            .where(Document.id.in_(ticket_ids))
-            .options(selectinload(Document.events))
-        ).all()
-        for ticket in tickets:
-            _append_event(
-                ticket,
-                step_code="realization_accepted_by_1c",
-                status="success",
-                message="1C удалила файл реализации после обработки",
-                occurred_at=occurred_at,
-                meta_json={"realization_id": realisation.id, "realization_file_name": realisation.file_name},
-            )
-            self._sync_ticket_status(ticket)
-
     def _link_payment_to_realisation(self, db: Session, payment: Document, mom_ref: str) -> None:
         realisation = db.scalar(
             select(Document)
@@ -737,38 +711,6 @@ class FilePipelineService:
                 db.rollback()
                 logger.exception("Failed to process existing realization in 1C target: %s", file_path)
 
-    def _process_onec_realisation_acknowledgements(self, db: Session) -> None:
-        realizations = db.scalars(
-            select(Document)
-            .where(Document.doc_type == "realization", Document.flow_group == "tickets")
-            .options(selectinload(Document.events))
-        ).all()
-        for realization in realizations:
-            if not _has_step_status(realization, "realization_copied_to_smb", "success"):
-                continue
-            if _has_step_status(realization, "realization_accepted_by_1c", "success"):
-                continue
-
-            candidate_path = Path(realization.file_path) if realization.file_path else self.settings.onec_realisations_target_dir / realization.file_name
-            if candidate_path.exists():
-                continue
-
-            occurred_at = datetime.now(timezone.utc)
-            realization.current_step = "realization_accepted_by_1c"
-            if realization.status != "error":
-                realization.status = "success"
-                realization.completed_at = occurred_at
-                realization.error_message = None
-            _append_event(
-                realization,
-                step_code="realization_accepted_by_1c",
-                status="success",
-                message="1C удалила файл реализации после обработки",
-                occurred_at=occurred_at,
-            )
-            self._mark_realisation_accepted_for_tickets(db, realization, occurred_at)
-            db.commit()
-
     def _process_payments(self, db: Session) -> None:
         for source_file in self._iter_xml_files(self.settings.onec_payments_source_dir):
             if not self._is_stable(source_file):
@@ -853,6 +795,5 @@ class FilePipelineService:
             self._process_ticket_results(db)
             self._process_existing_onec_realisations(db)
             self._process_realisations(db)
-            self._process_onec_realisation_acknowledgements(db)
             self._process_payments(db)
             self._process_payment_results(db)
