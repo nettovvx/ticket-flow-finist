@@ -20,13 +20,7 @@ from app.models.document import Document, DocumentEvent, DocumentLink, DocumentP
 logger = logging.getLogger(__name__)
 MOM_REF_PATTERN = re.compile(r"[MМ][OО][MМ]-\d{7}")
 REALIZATION_NS = {"x": "http://www.gridnine.com/export/xml"}
-REQUIRED_TICKET_SUCCESS_STEPS = (
-    "sirena_received",
-    "ticket_copied_to_ftp",
-    "ticket_seen_by_mom",
-    "realization_received_from_mom",
-    "realization_copied_to_smb",
-)
+TICKET_SUCCESS_CHECKPOINTS = ("ticket_seen_by_mom", "realization_copied_to_smb")
 
 
 def _safe_float(value: str | None) -> float | None:
@@ -258,16 +252,31 @@ class FilePipelineService:
         document.payload = payload
         return payload
 
+    def _apply_ticket_payload(self, document: Document, payload_data: dict[str, object]) -> None:
+        payload = self._ensure_payload(document)
+        payload.passenger_name = payload_data.get("passenger_name")
+        payload.ticket_number = payload_data.get("ticket_number")
+        payload.exchange_ticket_number = payload_data.get("exchange_ticket_number")
+        payload.pnr = payload_data.get("pnr")
+        payload.amount = payload_data.get("amount")
+        payload.currency = payload_data.get("currency")
+        payload.direction = payload_data.get("direction")
+        payload.document_date = payload_data.get("document_date")
+        payload.extra_json = payload_data.get("extra_json")
+
+        document.title = payload.passenger_name or payload.ticket_number or document.file_name
+        document.business_key = payload.pnr or payload.ticket_number
+
     def _sync_ticket_status(self, ticket: Document) -> None:
         if ticket.status == "error":
             ticket.completed_at = None
             return
 
-        if all(_has_step_status(ticket, step_code, "success") for step_code in REQUIRED_TICKET_SUCCESS_STEPS):
+        if all(_has_step_status(ticket, step_code, "success") for step_code in TICKET_SUCCESS_CHECKPOINTS):
             ticket.status = "success"
             ticket.current_step = "realization_copied_to_smb"
             ticket.error_message = None
-            ticket.completed_at = _latest_step_time(ticket, "realization_copied_to_smb") or datetime.now(timezone.utc)
+            ticket.completed_at = _latest_step_time(ticket, "realization_copied_to_smb") or _latest_step_time(ticket, "ticket_seen_by_mom") or datetime.now(timezone.utc)
             return
 
         ticket.status = "in_progress"
@@ -429,6 +438,32 @@ class FilePipelineService:
                 ticket.error_message = None
             self._sync_ticket_status(ticket)
 
+    def _mark_realisation_accepted_for_tickets(self, db: Session, realisation: Document, occurred_at: datetime | None) -> None:
+        ticket_ids = db.scalars(
+            select(DocumentLink.from_document_id).where(
+                DocumentLink.to_document_id == realisation.id,
+                DocumentLink.link_type == "ticket_to_realization",
+            )
+        ).all()
+        if not ticket_ids:
+            return
+
+        tickets = db.scalars(
+            select(Document)
+            .where(Document.id.in_(ticket_ids))
+            .options(selectinload(Document.events))
+        ).all()
+        for ticket in tickets:
+            _append_event(
+                ticket,
+                step_code="realization_accepted_by_1c",
+                status="success",
+                message="1C удалила файл реализации после обработки",
+                occurred_at=occurred_at,
+                meta_json={"realization_id": realisation.id, "realization_file_name": realisation.file_name},
+            )
+            self._sync_ticket_status(ticket)
+
     def _link_payment_to_realisation(self, db: Session, payment: Document, mom_ref: str) -> None:
         realisation = db.scalar(
             select(Document)
@@ -455,6 +490,13 @@ class FilePipelineService:
             file_name=file_path.name,
         )
         self._touch_file_meta(document, file_path)
+        if not document.occurred_at:
+            document.occurred_at = _file_created_at(file_path)
+        try:
+            payload_data = self._parse_ticket_payload(file_path)
+            self._apply_ticket_payload(document, payload_data)
+        except Exception:
+            logger.warning("Unable to parse ticket payload from %s", file_path, exc_info=True)
         document.current_step = "ticket_seen_by_mom"
         if success:
             if document.status != "error":
@@ -537,19 +579,7 @@ class FilePipelineService:
                 document.error_message = None
 
                 payload_data = self._parse_ticket_payload(moved_file)
-                payload = self._ensure_payload(document)
-                payload.passenger_name = payload_data.get("passenger_name")
-                payload.ticket_number = payload_data.get("ticket_number")
-                payload.exchange_ticket_number = payload_data.get("exchange_ticket_number")
-                payload.pnr = payload_data.get("pnr")
-                payload.amount = payload_data.get("amount")
-                payload.currency = payload_data.get("currency")
-                payload.direction = payload_data.get("direction")
-                payload.document_date = payload_data.get("document_date")
-                payload.extra_json = payload_data.get("extra_json")
-
-                document.title = payload.passenger_name or payload.ticket_number or moved_file.name
-                document.business_key = payload.pnr or payload.ticket_number
+                self._apply_ticket_payload(document, payload_data)
 
                 _append_event(
                     document,
@@ -630,22 +660,114 @@ class FilePipelineService:
                 self._link_realisation_to_tickets(db, document, parsed["pnrs"], occurred_at)
 
                 moved_file = self._move_file(source_file, self.settings.onec_realisations_target_dir)
+                moved_occurred_at = _file_created_at(moved_file)
                 self._touch_file_meta(document, moved_file)
                 _append_event(
                     document,
                     step_code="realization_copied_to_smb",
                     status="success",
                     message="Реализация перемещена в каталог 1C",
-                    occurred_at=_file_created_at(moved_file),
+                    occurred_at=moved_occurred_at,
                 )
                 if document.status != "error":
                     document.current_step = "realization_copied_to_smb"
                     document.status = "success"
-                    self._mark_realisation_copied_for_tickets(db, document, _file_created_at(moved_file))
+                    self._mark_realisation_copied_for_tickets(db, document, moved_occurred_at)
                 db.commit()
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process realization file: %s", source_file)
+
+    def _process_existing_onec_realisations(self, db: Session) -> None:
+        for file_path in self._iter_xml_files(self.settings.onec_realisations_target_dir):
+            if not self._is_stable(file_path):
+                continue
+            try:
+                parsed = self._parse_realisation_payload(file_path)
+                occurred_at = parsed["occurred_at"] or _file_created_at(file_path)
+                document = self._ensure_document(
+                    db,
+                    doc_type="realization",
+                    flow_group="tickets",
+                    source_system="mom",
+                    file_name=file_path.name,
+                )
+                self._touch_file_meta(document, file_path)
+                if not document.occurred_at:
+                    document.occurred_at = occurred_at
+                document.current_step = "realization_copied_to_smb"
+                document.error_message = "MOM пометил реализацию как deleted" if parsed["deleted"] else None
+                document.title = parsed["number"] or file_path.name
+                document.business_key = parsed["number"]
+                if parsed["deleted"]:
+                    document.status = "error"
+                    document.completed_at = None
+                elif document.status != "error":
+                    document.status = "success"
+                    document.completed_at = occurred_at
+
+                payload = self._ensure_payload(document)
+                payload.mom_number = parsed["payload"].get("mom_number")
+                payload.client_name = parsed["payload"].get("client_name")
+                payload.currency = parsed["payload"].get("currency")
+                payload.pnr = parsed["payload"].get("pnr")
+                payload.document_date = parsed["payload"].get("document_date")
+                payload.extra_json = parsed["payload"].get("extra_json")
+
+                _append_event(
+                    document,
+                    step_code="realization_received_from_mom",
+                    status="error" if parsed["deleted"] else "success",
+                    message="Реализация получена из MOM",
+                    occurred_at=occurred_at,
+                )
+                _append_event(
+                    document,
+                    step_code="realization_copied_to_smb",
+                    status="success",
+                    message="Реализация перемещена в каталог 1C",
+                    occurred_at=occurred_at,
+                )
+
+                self._link_realisation_to_tickets(db, document, parsed["pnrs"], occurred_at)
+                if document.status != "error":
+                    self._mark_realisation_copied_for_tickets(db, document, occurred_at)
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("Failed to process existing realization in 1C target: %s", file_path)
+
+    def _process_onec_realisation_acknowledgements(self, db: Session) -> None:
+        realizations = db.scalars(
+            select(Document)
+            .where(Document.doc_type == "realization", Document.flow_group == "tickets")
+            .options(selectinload(Document.events))
+        ).all()
+        for realization in realizations:
+            if not _has_step_status(realization, "realization_copied_to_smb", "success"):
+                continue
+            if _has_step_status(realization, "realization_accepted_by_1c", "success"):
+                continue
+
+            candidate_path = Path(realization.file_path) if realization.file_path else self.settings.onec_realisations_target_dir / realization.file_name
+            if candidate_path.exists():
+                continue
+
+            occurred_at = datetime.now(timezone.utc)
+            realization.current_step = "realization_accepted_by_1c"
+            if realization.status != "error":
+                realization.status = "success"
+                realization.completed_at = occurred_at
+                realization.error_message = None
+            _append_event(
+                realization,
+                step_code="realization_accepted_by_1c",
+                status="success",
+                message="1C удалила файл реализации после обработки",
+                occurred_at=occurred_at,
+            )
+            self._mark_realisation_accepted_for_tickets(db, realization, occurred_at)
+            db.commit()
 
     def _process_payments(self, db: Session) -> None:
         for source_file in self._iter_xml_files(self.settings.onec_payments_source_dir):
@@ -729,6 +851,8 @@ class FilePipelineService:
         with SessionLocal() as db:
             self._process_ticket_inbox(db)
             self._process_ticket_results(db)
+            self._process_existing_onec_realisations(db)
             self._process_realisations(db)
+            self._process_onec_realisation_acknowledgements(db)
             self._process_payments(db)
             self._process_payment_results(db)

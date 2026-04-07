@@ -103,6 +103,19 @@ alembic upgrade head
 Для `ticket` и `payment` в качестве `occurred_at` используется время файла
 из файловой системы (на Linux обычно `mtime`).
 
+### Критерий успеха билета
+
+Билет получает статус `success`, когда выполнены оба контрольных факта:
+
+- файл билета попал в `FTP_TICKETS_PROCESSED_DIR` (шаг `ticket_seen_by_mom`);
+- связанная реализация перемещена в `ONEC_REALISATIONS_TARGET_DIR` (шаг `realization_copied_to_smb`).
+
+Это позволяет корректно считать успех даже если система была запущена уже при наличии
+файлов и ранние шаги (`sirena_received`, `ticket_copied_to_ftp`) не были зафиксированы.
+
+Дополнительно: если файл реализации исчез из каталога `ONEC_REALISATIONS_TARGET_DIR`,
+конвейер фиксирует событие `realization_accepted_by_1c` (1С обработала и удалила файл).
+
 ## Учетные данные по умолчанию
 
 Bootstrap-админ берется из `.env`:
