@@ -63,12 +63,23 @@ def _safe_float(value: str | None) -> float | None:
         return None
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _clamp_future_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    now = _utc_now()
+    return value if value <= now else now
+
+
 def _parse_ticket_datetime(date_text: str | None, time_text: str | None) -> datetime | None:
     if not date_text:
         return None
     raw_time = time_text or "0000"
     try:
-        return datetime.strptime(f"{date_text}{raw_time}", "%d%m%Y%H%M").replace(tzinfo=timezone.utc)
+        return _clamp_future_datetime(datetime.strptime(f"{date_text}{raw_time}", "%d%m%Y%H%M").replace(tzinfo=timezone.utc))
     except ValueError:
         return None
 
@@ -77,7 +88,7 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return _clamp_future_datetime(datetime.fromisoformat(value.replace("Z", "+00:00")))
     except ValueError:
         return None
 
@@ -105,7 +116,7 @@ def _hash_file(path: Path) -> str:
 def _file_created_at(path: Path) -> datetime:
     stat = path.stat()
     timestamp = getattr(stat, "st_birthtime", None) or stat.st_mtime
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    return _clamp_future_datetime(datetime.fromtimestamp(timestamp, tz=timezone.utc)) or _utc_now()
 
 
 def _build_unique_destination(path: Path) -> Path:

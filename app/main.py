@@ -32,6 +32,8 @@ def create_app() -> FastAPI:
     assets_dir = settings.web_dir / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+    if settings.logo_dir.exists():
+        app.mount("/logo", StaticFiles(directory=str(settings.logo_dir)), name="logo")
     app.include_router(api_router)
 
     @app.get("/health")
@@ -40,7 +42,7 @@ def create_app() -> FastAPI:
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str):
-        if full_path.startswith("api") or full_path.startswith("assets"):
+        if full_path.startswith("api") or full_path.startswith("assets") or full_path.startswith("logo"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         index_file = settings.web_dir / "index.html"
         if index_file.exists():

@@ -28,6 +28,8 @@ def tickets_listing(
     status_filter: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> TicketsListingResponse:
@@ -39,6 +41,8 @@ def tickets_listing(
         status_filter=status_filter,
         date_from=date_from,
         date_to=date_to,
+        limit=limit,
+        offset=offset,
     )
     return TicketsListingResponse.model_validate(serialize_ticket_listing(listing))
 
@@ -50,6 +54,8 @@ def payments_listing(
     status_filter: str | None = Query(default=None),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DocumentsListingResponse:
@@ -62,6 +68,8 @@ def payments_listing(
         status_filter=status_filter,
         date_from=date_from,
         date_to=date_to,
+        limit=limit,
+        offset=offset,
     )
     return DocumentsListingResponse.model_validate(serialize_documents_listing(listing))
 

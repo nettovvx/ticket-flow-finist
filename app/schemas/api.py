@@ -106,10 +106,23 @@ class OrphanRealizationResponse(BaseModel):
     state: DocumentStateResponse | None
 
 
+class TicketListingEntryResponse(BaseModel):
+    entry_type: str
+    entry_id: str
+    ticket_case: TicketCaseResponse | None = None
+    orphan_realization: OrphanRealizationResponse | None = None
+
+
 class TicketsListingResponse(BaseModel):
+    entries: list[TicketListingEntryResponse]
     ticket_cases: list[TicketCaseResponse]
     orphan_realizations: list[OrphanRealizationResponse]
     counters: dict[str, int]
+    total_count: int
+    filtered_count: int
+    offset: int
+    limit: int
+    has_more: bool
 
 
 class DocumentRowResponse(BaseModel):
@@ -120,6 +133,11 @@ class DocumentRowResponse(BaseModel):
 class DocumentsListingResponse(BaseModel):
     rows: list[DocumentRowResponse]
     counters: dict[str, int]
+    total_count: int
+    filtered_count: int
+    offset: int
+    limit: int
+    has_more: bool
 
 
 class DocumentDetailResponse(BaseModel):

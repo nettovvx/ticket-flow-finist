@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const PAGE_SIZE = 50;
+const AUTO_REFRESH_MS = 15000;
 
 const INITIAL_FILTERS = {
   q: "",
@@ -7,6 +10,12 @@ const INITIAL_FILTERS = {
   date_from: "",
   date_to: "",
 };
+
+const HEADER_LOGOS = [
+  { src: "/logo/hightek.png", alt: "Hightek", caption: "hightek" },
+  { src: "/logo/nettovvx-studio.png", alt: "Nettovvx Studio", caption: "nettovvx-studio" },
+  { src: "/logo/finist.png", alt: "Finist", caption: "finist" },
+];
 
 function getPathPage(pathname, role) {
   if (role === "admin" && pathname.startsWith("/users")) {
@@ -37,15 +46,23 @@ async function api(path, options = {}) {
   return payload;
 }
 
-function buildQuery(filters) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value) {
-      params.set(key, value);
+function buildQuery(params) {
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      searchParams.set(key, String(value));
     }
   }
-  const query = params.toString();
+  const query = searchParams.toString();
   return query ? `?${query}` : "";
+}
+
+function clampFutureDate(date) {
+  const now = Date.now();
+  if (date.getTime() > now) {
+    return new Date(now);
+  }
+  return date;
 }
 
 function formatDate(value) {
@@ -56,7 +73,7 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString("ru-RU");
+  return clampFutureDate(date).toLocaleString("ru-RU");
 }
 
 function stepMeta(step) {
@@ -85,65 +102,140 @@ function HeaderBlock({ title, subtitle, right }) {
   );
 }
 
+function deriveTicketGroupsFromEntries(entries) {
+  const ticketCases = [];
+  const orphanRealizations = [];
+  for (const entry of entries) {
+    if (entry.entry_type === "ticket_case" && entry.ticket_case) {
+      ticketCases.push(entry.ticket_case);
+    }
+    if (entry.entry_type === "orphan_realization" && entry.orphan_realization) {
+      orphanRealizations.push(entry.orphan_realization);
+    }
+  }
+  return { ticketCases, orphanRealizations };
+}
+
+function mergeTicketListing(previous, next) {
+  if (!previous) {
+    return next;
+  }
+  const mergedEntries = [];
+  const seen = new Set();
+  for (const entry of [...previous.entries, ...next.entries]) {
+    if (seen.has(entry.entry_id)) {
+      continue;
+    }
+    seen.add(entry.entry_id);
+    mergedEntries.push(entry);
+  }
+  const groups = deriveTicketGroupsFromEntries(mergedEntries);
+  return {
+    ...next,
+    entries: mergedEntries,
+    ticket_cases: groups.ticketCases,
+    orphan_realizations: groups.orphanRealizations,
+  };
+}
+
+function mergePaymentListing(previous, next) {
+  if (!previous) {
+    return next;
+  }
+  const mergedRows = [];
+  const seen = new Set();
+  for (const row of [...previous.rows, ...next.rows]) {
+    const key = row.document.id;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    mergedRows.push(row);
+  }
+  return {
+    ...next,
+    rows: mergedRows,
+  };
+}
+
+function getLoadedCount(listing, activeTab) {
+  if (!listing) {
+    return 0;
+  }
+  if (activeTab === "tickets") {
+    return Array.isArray(listing.entries) ? listing.entries.length : 0;
+  }
+  return Array.isArray(listing.rows) ? listing.rows.length : 0;
+}
+
 function TicketCards({ listing, onOpenDocument }) {
-  const ticketCases = Array.isArray(listing?.ticket_cases) ? listing.ticket_cases : [];
-  const orphanRealizations = Array.isArray(listing?.orphan_realizations) ? listing.orphan_realizations : [];
+  const entries = Array.isArray(listing?.entries) ? listing.entries : [];
 
   return (
     <section className="cards-grid">
-      {ticketCases.map((caseItem) => (
-        <article key={caseItem.ticket.id} className="card">
-          <HeaderBlock
-            title={caseItem.ticket.payload?.passenger_name || caseItem.ticket.title || caseItem.ticket.file_name}
-            subtitle={`Билет: ${caseItem.ticket.payload?.ticket_number || "—"} · PNR: ${caseItem.ticket.payload?.pnr || "—"}`}
-            right={
+      {entries.map((entry) => {
+        if (entry.entry_type === "ticket_case" && entry.ticket_case) {
+          const caseItem = entry.ticket_case;
+          return (
+            <article key={entry.entry_id} className="card">
+              <HeaderBlock
+                title={caseItem.ticket.payload?.passenger_name || caseItem.ticket.title || caseItem.ticket.file_name}
+                subtitle={`Билет: ${caseItem.ticket.payload?.ticket_number || "—"} · PNR: ${caseItem.ticket.payload?.pnr || "—"}`}
+                right={
+                  <div className="row-actions">
+                    <StatusPill status={caseItem.group_status} />
+                    <button className="ghost" onClick={() => onOpenDocument(caseItem.ticket.id)} type="button">
+                      Маршрут
+                    </button>
+                  </div>
+                }
+              />
+
+              <div className="steps">
+                {caseItem.steps.map((step) => (
+                  <div key={step.code} className={`step status-${step.status}`}>
+                    <strong>{step.label}</strong>
+                    <small>{stepMeta(step)}</small>
+                  </div>
+                ))}
+              </div>
+
+              <div className="chips">
+                {caseItem.realizations.map((item) => (
+                  <button key={item.id} className="chip" onClick={() => onOpenDocument(item.id)} type="button">
+                    {item.payload?.mom_number || item.title || item.file_name}
+                  </button>
+                ))}
+              </div>
+
               <div className="row-actions">
-                <StatusPill status={caseItem.group_status} />
-                <button className="ghost" onClick={() => onOpenDocument(caseItem.ticket.id)} type="button">
-                  Маршрут
+                <small>Последняя активность: {formatDate(caseItem.last_activity_at)}</small>
+              </div>
+            </article>
+          );
+        }
+
+        if (entry.entry_type === "orphan_realization" && entry.orphan_realization) {
+          const item = entry.orphan_realization;
+          return (
+            <article key={entry.entry_id} className="card orphan">
+              <HeaderBlock
+                title={item.realization.payload?.mom_number || item.realization.title || item.realization.file_name}
+                subtitle={item.realization.payload?.client_name || "Контрагент не найден"}
+                right={<StatusPill status={item.realization.status} />}
+              />
+              <div className="row-actions">
+                <small>PNR: {item.realization.payload?.pnr || "—"}</small>
+                <button className="ghost" onClick={() => onOpenDocument(item.realization.id)} type="button">
+                  Открыть
                 </button>
               </div>
-            }
-          />
+            </article>
+          );
+        }
 
-          <div className="steps">
-            {caseItem.steps.map((step) => (
-              <div key={step.code} className={`step status-${step.status}`}>
-                <strong>{step.label}</strong>
-                <small>{stepMeta(step)}</small>
-              </div>
-            ))}
-          </div>
-
-          <div className="chips">
-            {caseItem.realizations.map((item) => (
-              <button key={item.id} className="chip" onClick={() => onOpenDocument(item.id)} type="button">
-                {item.payload?.mom_number || item.title || item.file_name}
-              </button>
-            ))}
-          </div>
-
-          <div className="row-actions">
-            <small>Последняя активность: {formatDate(caseItem.last_activity_at)}</small>
-          </div>
-        </article>
-      ))}
-
-      {orphanRealizations.map((item) => (
-        <article key={item.realization.id} className="card orphan">
-          <HeaderBlock
-            title={item.realization.payload?.mom_number || item.realization.title || item.realization.file_name}
-            subtitle={item.realization.payload?.client_name || "Контрагент не найден"}
-            right={<StatusPill status={item.realization.status} />}
-          />
-          <div className="row-actions">
-            <small>PNR: {item.realization.payload?.pnr || "—"}</small>
-            <button className="ghost" onClick={() => onOpenDocument(item.realization.id)} type="button">
-              Открыть
-            </button>
-          </div>
-        </article>
-      ))}
+        return null;
+      })}
     </section>
   );
 }
@@ -161,8 +253,7 @@ function PaymentCards({ listing, onOpenDocument }) {
           />
           <div className="row-actions">
             <small>
-              MOM: {row.document.payload?.mom_number || "—"} · Сумма: {row.document.payload?.amount ?? "—"}{" "}
-              {row.document.payload?.currency || ""}
+              MOM: {row.document.payload?.mom_number || "—"} · Сумма: {row.document.payload?.amount ?? "—"} {row.document.payload?.currency || ""}
             </small>
             <button className="ghost" onClick={() => onOpenDocument(row.document.id)} type="button">
               Детали
@@ -291,11 +382,7 @@ function UsersPage({ currentUser, users, loading, message, onCreate, onRoleChang
                 <small>{item.is_active ? "active" : "inactive"} · последний вход: {formatDate(item.last_login_at)}</small>
               </div>
 
-              <select
-                value={item.role}
-                onChange={(event) => onRoleChange(item.id, event.target.value)}
-                disabled={busyUserId === item.id}
-              >
+              <select value={item.role} onChange={(event) => onRoleChange(item.id, event.target.value)} disabled={busyUserId === item.id}>
                 <option value="user">user</option>
                 <option value="admin">admin</option>
               </select>
@@ -335,6 +422,8 @@ export default function App() {
 
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const [detail, setDetail] = useState(null);
@@ -344,8 +433,13 @@ export default function App() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
 
+  const loadMoreRef = useRef(null);
+  const requestIdRef = useRef(0);
+
   const currentPage = getPathPage(pagePath, user?.role);
   const counters = useMemo(() => listing?.counters ?? {}, [listing]);
+  const filteredCount = listing?.filtered_count ?? 0;
+  const totalCount = listing?.total_count ?? 0;
 
   useEffect(() => {
     const handler = () => setPagePath(window.location.pathname);
@@ -376,21 +470,91 @@ export default function App() {
     }
   }, [user, currentPage]);
 
-  useEffect(() => {
+  async function fetchMonitorListing({ offset = 0, limit = PAGE_SIZE, append = false, silent = false } = {}) {
     if (!user || currentPage !== "monitor") {
       return;
     }
 
+    const requestId = ++requestIdRef.current;
     const endpoint = activeTab === "tickets" ? "/api/documents/tickets" : "/api/documents/payments";
-    setLoading(true);
-    setError("");
-    setListing(null);
+    const query = buildQuery({ ...filters, offset, limit });
 
-    api(`${endpoint}${buildQuery(filters)}`)
-      .then((data) => setListing(data))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    if (append) {
+      setLoadingMore(true);
+    } else if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const data = await api(`${endpoint}${query}`);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      setError("");
+      setListing((prev) => {
+        if (!append) {
+          return data;
+        }
+        return activeTab === "tickets" ? mergeTicketListing(prev, data) : mergePaymentListing(prev, data);
+      });
+    } catch (eventError) {
+      if (requestId === requestIdRef.current) {
+        setError(eventError.message);
+      }
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+        setRefreshing(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!user || currentPage !== "monitor") {
+      return;
+    }
+    setDetail(null);
+    fetchMonitorListing({ offset: 0, limit: PAGE_SIZE });
   }, [user, currentPage, activeTab, filters]);
+
+  useEffect(() => {
+    if (!user || currentPage !== "monitor") {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      const currentLimit = Math.max(getLoadedCount(listing, activeTab), PAGE_SIZE);
+      fetchMonitorListing({ offset: 0, limit: currentLimit, silent: true });
+    }, AUTO_REFRESH_MS);
+    return () => window.clearInterval(intervalId);
+  }, [user, currentPage, activeTab, filters, listing]);
+
+  useEffect(() => {
+    if (!user || currentPage !== "monitor" || !loadMoreRef.current) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const firstEntry = entries[0];
+        if (!firstEntry?.isIntersecting || loading || loadingMore || !listing?.has_more) {
+          return;
+        }
+        fetchMonitorListing({
+          offset: getLoadedCount(listing, activeTab),
+          limit: PAGE_SIZE,
+          append: true,
+          silent: true,
+        });
+      },
+      { rootMargin: "320px 0px" },
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [user, currentPage, activeTab, listing, loading, loadingMore, filters]);
 
   useEffect(() => {
     if (!user || user.role !== "admin" || currentPage !== "users") {
@@ -402,7 +566,7 @@ export default function App() {
         setAdminUsers(data);
         setAdminMessage("");
       })
-      .catch((e) => setAdminMessage(e.message))
+      .catch((eventError) => setAdminMessage(eventError.message))
       .finally(() => setUsersLoading(false));
   }, [user, currentPage]);
 
@@ -410,9 +574,8 @@ export default function App() {
     if (currentPage !== "monitor") {
       return;
     }
-    const endpoint = activeTab === "tickets" ? "/api/documents/tickets" : "/api/documents/payments";
-    const data = await api(`${endpoint}${buildQuery(filters)}`);
-    setListing(data);
+    const currentLimit = Math.max(getLoadedCount(listing, activeTab), PAGE_SIZE);
+    await fetchMonitorListing({ offset: 0, limit: currentLimit, silent: true });
   }
 
   async function onLogin(event) {
@@ -425,8 +588,8 @@ export default function App() {
       });
       setUser(me);
       navigate("/");
-    } catch (e) {
-      setAuthError(e.message);
+    } catch (loginError) {
+      setAuthError(loginError.message);
     }
   }
 
@@ -442,8 +605,8 @@ export default function App() {
     try {
       const data = await api(`/api/documents/${documentId}`);
       setDetail(data);
-    } catch (e) {
-      setError(e.message);
+    } catch (detailError) {
+      setError(detailError.message);
     } finally {
       setDetailLoading(false);
     }
@@ -477,8 +640,8 @@ export default function App() {
       setAdminUsers((prev) => [account, ...prev]);
       setAdminMessage("Пользователь создан");
       return true;
-    } catch (e) {
-      setAdminMessage(e.message);
+    } catch (createError) {
+      setAdminMessage(createError.message);
       return false;
     }
   }
@@ -491,8 +654,8 @@ export default function App() {
       });
       setAdminUsers((prev) => prev.map((item) => (item.id === userId ? account : item)));
       setAdminMessage("Роль обновлена");
-    } catch (e) {
-      setAdminMessage(e.message);
+    } catch (changeError) {
+      setAdminMessage(changeError.message);
     }
   }
 
@@ -502,8 +665,8 @@ export default function App() {
         await api(`/api/admin/users/${userId}`, { method: "DELETE" });
         setAdminUsers((prev) => prev.filter((item) => item.id !== userId));
         setAdminMessage("Пользователь удален");
-      } catch (e) {
-        setAdminMessage(e.message);
+      } catch (deleteError) {
+        setAdminMessage(deleteError.message);
       }
     }
   }
@@ -522,11 +685,7 @@ export default function App() {
           <form onSubmit={onLogin} className="auth-form">
             <label>
               Логин
-              <input
-                value={login.username}
-                onChange={(event) => setLogin((prev) => ({ ...prev, username: event.target.value }))}
-                required
-              />
+              <input value={login.username} onChange={(event) => setLogin((prev) => ({ ...prev, username: event.target.value }))} required />
             </label>
             <label>
               Пароль
@@ -548,9 +707,19 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>TicketFlow</h1>
-          <p>Система мониторинга документного обмена</p>
+        <div className="topbar-brand">
+          <div className="logo-strip">
+            {HEADER_LOGOS.map((logo) => (
+              <div key={logo.alt} className="logo-badge">
+                <img src={logo.src} alt={logo.alt} />
+                <span>{logo.caption}</span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <h1>TicketFlow</h1>
+            <p>Система мониторинга документного обмена</p>
+          </div>
         </div>
         <div className="topbar-actions">
           <span className="user-chip">
@@ -603,12 +772,9 @@ export default function App() {
                 Платежки
               </button>
             </div>
+
             <div className="filters">
-              <input
-                placeholder="Поиск"
-                value={filters.q}
-                onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))}
-              />
+              <input placeholder="Поиск" value={filters.q} onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))} />
               <select value={filters.view} onChange={(event) => setFilters((prev) => ({ ...prev, view: event.target.value }))}>
                 <option value="active">В работе + ошибки</option>
                 <option value="errors">Только ошибки</option>
@@ -616,25 +782,20 @@ export default function App() {
                 <option value="hidden">Скрытые</option>
                 <option value="all">Все</option>
               </select>
-              <select
-                value={filters.status_filter}
-                onChange={(event) => setFilters((prev) => ({ ...prev, status_filter: event.target.value }))}
-              >
+              <select value={filters.status_filter} onChange={(event) => setFilters((prev) => ({ ...prev, status_filter: event.target.value }))}>
                 <option value="">Все статусы</option>
                 <option value="in_progress">В работе</option>
                 <option value="error">Ошибка</option>
                 <option value="success">Успешно</option>
               </select>
-              <input
-                type="date"
-                value={filters.date_from}
-                onChange={(event) => setFilters((prev) => ({ ...prev, date_from: event.target.value }))}
-              />
-              <input
-                type="date"
-                value={filters.date_to}
-                onChange={(event) => setFilters((prev) => ({ ...prev, date_to: event.target.value }))}
-              />
+              <input type="date" value={filters.date_from} onChange={(event) => setFilters((prev) => ({ ...prev, date_from: event.target.value }))} />
+              <input type="date" value={filters.date_to} onChange={(event) => setFilters((prev) => ({ ...prev, date_to: event.target.value }))} />
+            </div>
+
+            <div className="results-meta">
+              <span>Найдено: {filteredCount}</span>
+              <span>Всего в разделе: {totalCount}</span>
+              {refreshing && <span>Обновляем…</span>}
             </div>
           </section>
 
@@ -643,6 +804,12 @@ export default function App() {
 
           {activeTab === "tickets" && listing && <TicketCards listing={listing} onOpenDocument={openDocument} />}
           {activeTab === "payments" && listing && <PaymentCards listing={listing} onOpenDocument={openDocument} />}
+
+          <div ref={loadMoreRef} className="list-end">
+            {loadingMore && <span>Подгружаем еще...</span>}
+            {!loadingMore && listing?.has_more && <span>Прокрутите ниже, чтобы загрузить еще 50</span>}
+            {!listing?.has_more && filteredCount > 0 && <span>Все результаты загружены</span>}
+          </div>
         </>
       )}
 
@@ -658,14 +825,7 @@ export default function App() {
         />
       )}
 
-      <DetailModal
-        user={user}
-        detail={detail}
-        loading={detailLoading}
-        onClose={() => setDetail(null)}
-        onHide={hideDocument}
-        onUnhide={unhideDocument}
-      />
+      <DetailModal user={user} detail={detail} loading={detailLoading} onClose={() => setDetail(null)} onHide={hideDocument} onUnhide={unhideDocument} />
     </main>
   );
 }

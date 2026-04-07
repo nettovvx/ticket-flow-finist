@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     static_dir: Path = BASE_DIR / "app" / "static"
     web_dir: Path = BASE_DIR / "app" / "static" / "web"
     templates_dir: Path = BASE_DIR / "app" / "templates"
+    logo_dir: Path = BASE_DIR / "logo"
 
 
 @lru_cache

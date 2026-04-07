@@ -1,7 +1,7 @@
 from collections import Counter
 from datetime import datetime, time, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.document import Document, DocumentLink, DocumentPayload, DocumentUserState
@@ -24,6 +24,21 @@ def _parse_date_end(value: str) -> datetime | None:
 
 def _get_user_state(document: Document, user_id: str) -> DocumentUserState | None:
     return next((state for state in document.user_states if state.user_id == user_id), None)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _clamp_future_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    now = _utc_now()
+    return value if value <= now else now
+
+
+def _document_sort_time(document: Document) -> datetime:
+    return _clamp_future_datetime(document.occurred_at) or _clamp_future_datetime(document.created_at) or datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _normalize_search(search: str | None) -> str | None:
@@ -77,7 +92,8 @@ def _event_status(document: Document, step_code: str) -> str:
 
 
 def _event_occurred_at(document: Document, step_code: str) -> datetime | None:
-    timestamps = [event.occurred_at for event in document.events if event.step_code == step_code and event.occurred_at]
+    timestamps = [_clamp_future_datetime(event.occurred_at) for event in document.events if event.step_code == step_code and event.occurred_at]
+    timestamps = [timestamp for timestamp in timestamps if timestamp]
     if not timestamps:
         return None
     return max(timestamps)
@@ -177,7 +193,8 @@ def _matches_date_range(documents: list[Document], date_from: str | None, date_t
     if not parsed_from and not parsed_to:
         return True
 
-    timestamps = [document.occurred_at for document in documents if document.occurred_at]
+    timestamps = [_clamp_future_datetime(document.occurred_at) for document in documents if document.occurred_at]
+    timestamps = [timestamp for timestamp in timestamps if timestamp]
     if not timestamps:
         return False
 
@@ -220,6 +237,8 @@ def build_ticket_case_listing(
     status_filter: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
 ) -> dict[str, object]:
     documents = db.scalars(
         select(Document)
@@ -238,7 +257,7 @@ def build_ticket_case_listing(
     realization_by_id = {document.id: document for document in documents if document.doc_type == "realization"}
 
     linked_realization_ids: set[str] = set()
-    ticket_cases: list[dict[str, object]] = []
+    all_ticket_cases: list[dict[str, object]] = []
     for ticket in ticket_by_id.values():
         related_realizations = []
         for link in ticket.outgoing_links:
@@ -254,67 +273,96 @@ def build_ticket_case_listing(
         group_status = _group_status(ticket, related_realizations)
         state = _get_user_state(ticket, user.id)
 
-        if not _matches_status_filter(group_status, status_filter):
-            continue
-        if not _matches_view(group_status, state, view):
-            continue
-        if not _matches_date_range(group_documents, date_from, date_to):
-            continue
-        if search and not any(_document_matches_search(document, search) for document in group_documents):
-            continue
-
-        ticket_cases.append(
+        all_ticket_cases.append(
             {
                 "ticket": ticket,
                 "ticket_state": state,
                 "realizations": related_realizations,
                 "group_status": group_status,
                 "steps": _ticket_case_steps(ticket),
-                "last_activity_at": max((document.occurred_at for document in group_documents if document.occurred_at), default=ticket.created_at),
+                "last_activity_at": max((_document_sort_time(document) for document in group_documents), default=_document_sort_time(ticket)),
             }
         )
 
-    ticket_cases.sort(key=lambda item: item["last_activity_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    all_ticket_cases.sort(key=lambda item: item["last_activity_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
 
-    orphan_realizations: list[dict[str, object]] = []
+    all_orphan_realizations: list[dict[str, object]] = []
     for realization in realization_by_id.values():
         if realization.id in linked_realization_ids:
             continue
         state = _get_user_state(realization, user.id)
-        if not _matches_status_filter(realization.status, status_filter):
-            continue
-        if not _matches_view(realization.status, state, view):
-            continue
-        if not _matches_date_range([realization], date_from, date_to):
-            continue
-        if search and not _document_matches_search(realization, search):
-            continue
-
-        orphan_realizations.append(
+        all_orphan_realizations.append(
             {
                 "realization": realization,
                 "state": state,
             }
         )
-    orphan_realizations.sort(
-        key=lambda item: item["realization"].occurred_at or datetime.min.replace(tzinfo=timezone.utc),
-        reverse=True,
-    )
+    all_orphan_realizations.sort(key=lambda item: _document_sort_time(item["realization"]), reverse=True)
 
     counters = Counter()
-    for case in ticket_cases:
+    for case in all_ticket_cases:
         counters[case["group_status"]] += 1
         if case["ticket_state"] and case["ticket_state"].is_hidden:
             counters["hidden"] += 1
-    for orphan in orphan_realizations:
+    for orphan in all_orphan_realizations:
         counters[orphan["realization"].status] += 1
         if orphan["state"] and orphan["state"].is_hidden:
             counters["hidden"] += 1
 
+    filtered_entries: list[dict[str, object]] = []
+    for case in all_ticket_cases:
+        group_documents = [case["ticket"], *case["realizations"]]
+        if not _matches_status_filter(case["group_status"], status_filter):
+            continue
+        if not _matches_view(case["group_status"], case["ticket_state"], view):
+            continue
+        if not _matches_date_range(group_documents, date_from, date_to):
+            continue
+        if search and not any(_document_matches_search(document, search) for document in group_documents):
+            continue
+        filtered_entries.append(
+            {
+                "entry_type": "ticket_case",
+                "entry_id": case["ticket"].id,
+                "sort_time": case["last_activity_at"],
+                "ticket_case": case,
+            }
+        )
+
+    for orphan in all_orphan_realizations:
+        realization = orphan["realization"]
+        if not _matches_status_filter(realization.status, status_filter):
+            continue
+        if not _matches_view(realization.status, orphan["state"], view):
+            continue
+        if not _matches_date_range([realization], date_from, date_to):
+            continue
+        if search and not _document_matches_search(realization, search):
+            continue
+        filtered_entries.append(
+            {
+                "entry_type": "orphan_realization",
+                "entry_id": realization.id,
+                "sort_time": _document_sort_time(realization),
+                "orphan_realization": orphan,
+            }
+        )
+
+    filtered_entries.sort(key=lambda item: item["sort_time"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    page_entries = filtered_entries[offset : offset + limit]
+    ticket_cases = [item["ticket_case"] for item in page_entries if item["entry_type"] == "ticket_case"]
+    orphan_realizations = [item["orphan_realization"] for item in page_entries if item["entry_type"] == "orphan_realization"]
+
     return {
+        "entries": page_entries,
         "ticket_cases": ticket_cases,
         "orphan_realizations": orphan_realizations,
         "counters": counters,
+        "total_count": len(all_ticket_cases) + len(all_orphan_realizations),
+        "filtered_count": len(filtered_entries),
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(page_entries) < len(filtered_entries),
     }
 
 
@@ -329,9 +377,10 @@ def build_document_listing(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> dict[str, object]:
     state_alias = aliased(DocumentUserState)
-    stmt = (
+    base_stmt = (
         select(Document, DocumentPayload, state_alias)
         .join(DocumentPayload, DocumentPayload.document_id == Document.id, isouter=True)
         .join(
@@ -340,10 +389,16 @@ def build_document_listing(
             isouter=True,
         )
         .where(Document.flow_group == flow_group)
-        .order_by(Document.occurred_at.desc().nullslast(), Document.created_at.desc())
-        .limit(limit)
     )
 
+    counter_rows = db.execute(base_stmt.with_only_columns(Document.status, state_alias.is_hidden)).all()
+    counters = Counter()
+    for status, is_hidden in counter_rows:
+        counters[status] += 1
+        if is_hidden:
+            counters["hidden"] += 1
+
+    stmt = base_stmt
     if status_filter:
         stmt = stmt.where(Document.status == status_filter)
 
@@ -388,15 +443,22 @@ def build_document_listing(
     else:
         stmt = stmt.where(Document.status.in_(["in_progress", "error"])).where(hidden_clause)
 
-    rows = db.execute(stmt).all()
+    filtered_count = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    rows = db.execute(
+        stmt.order_by(Document.occurred_at.desc().nullslast(), Document.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
 
-    counters = Counter()
-    for document, _, state in rows:
-        counters[document.status] += 1
-        if state and state.is_hidden:
-            counters["hidden"] += 1
-
-    return {"rows": rows, "counters": counters}
+    return {
+        "rows": rows,
+        "counters": counters,
+        "total_count": len(counter_rows),
+        "filtered_count": int(filtered_count),
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < int(filtered_count),
+    }
 
 
 def load_document_with_context(db: Session, document_id: str) -> dict[str, object] | None:
@@ -487,7 +549,7 @@ def load_document_with_context(db: Session, document_id: str) -> dict[str, objec
     return {
         "document": document,
         "root_ticket": root_ticket,
-        "linked_realizations": sorted(linked_realizations, key=lambda item: item.occurred_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True),
-        "linked_payments": sorted(linked_payments, key=lambda item: item.occurred_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True),
+        "linked_realizations": sorted(linked_realizations, key=_document_sort_time, reverse=True),
+        "linked_payments": sorted(linked_payments, key=_document_sort_time, reverse=True),
         "steps": detail_steps,
     }

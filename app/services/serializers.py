@@ -74,6 +74,39 @@ def serialize_document(document: Document, *, include_events: bool = False) -> d
 
 
 def serialize_ticket_listing(raw_listing: dict[str, object]) -> dict[str, object]:
+    entries = []
+    for item in raw_listing["entries"]:
+        if item["entry_type"] == "ticket_case":
+            case = item["ticket_case"]
+            entries.append(
+                {
+                    "entry_type": "ticket_case",
+                    "entry_id": item["entry_id"],
+                    "ticket_case": {
+                        "ticket": serialize_document(case["ticket"]),
+                        "ticket_state": serialize_state(case["ticket_state"]),
+                        "realizations": [serialize_document(realization) for realization in case["realizations"]],
+                        "group_status": case["group_status"],
+                        "steps": case["steps"],
+                        "last_activity_at": case["last_activity_at"],
+                    },
+                    "orphan_realization": None,
+                }
+            )
+        else:
+            orphan = item["orphan_realization"]
+            entries.append(
+                {
+                    "entry_type": "orphan_realization",
+                    "entry_id": item["entry_id"],
+                    "ticket_case": None,
+                    "orphan_realization": {
+                        "realization": serialize_document(orphan["realization"]),
+                        "state": serialize_state(orphan["state"]),
+                    },
+                }
+            )
+
     ticket_cases = []
     for case in raw_listing["ticket_cases"]:
         ticket_cases.append(
@@ -98,9 +131,15 @@ def serialize_ticket_listing(raw_listing: dict[str, object]) -> dict[str, object
 
     counters = {key: int(value) for key, value in dict(raw_listing["counters"]).items()}
     return {
+        "entries": entries,
         "ticket_cases": ticket_cases,
         "orphan_realizations": orphan_realizations,
         "counters": counters,
+        "total_count": raw_listing["total_count"],
+        "filtered_count": raw_listing["filtered_count"],
+        "offset": raw_listing["offset"],
+        "limit": raw_listing["limit"],
+        "has_more": raw_listing["has_more"],
     }
 
 
@@ -118,6 +157,11 @@ def serialize_documents_listing(raw_listing: dict[str, object]) -> dict[str, obj
     return {
         "rows": rows,
         "counters": counters,
+        "total_count": raw_listing["total_count"],
+        "filtered_count": raw_listing["filtered_count"],
+        "offset": raw_listing["offset"],
+        "limit": raw_listing["limit"],
+        "has_more": raw_listing["has_more"],
     }
 
 

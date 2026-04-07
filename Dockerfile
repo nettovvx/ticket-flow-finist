@@ -18,6 +18,7 @@ COPY scripts ./scripts
 COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
 COPY docs ./docs
+COPY logo ./logo
 
 COPY --from=frontend-builder /app/static/web ./app/static/web
 

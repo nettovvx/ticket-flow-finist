@@ -118,6 +118,41 @@ select {
   padding: 18px 20px;
 }
 
+.topbar-brand {
+  display: grid;
+  gap: 14px;
+}
+
+.logo-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.logo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.logo-badge img {
+  width: auto;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
+.logo-badge span {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .topbar h1 {
   margin: 0;
 }
@@ -173,6 +208,14 @@ select {
   padding: 14px;
   display: grid;
   gap: 12px;
+}
+
+.results-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 
 .tabs {
@@ -476,6 +519,14 @@ select {
   color: var(--muted);
 }
 
+.list-end {
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .muted-line {
   color: var(--muted);
 }
@@ -487,6 +538,11 @@ select {
 
   .filters {
     grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .inline-form {
