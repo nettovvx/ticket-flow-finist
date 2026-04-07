@@ -24,8 +24,8 @@ services:
         condition: service_healthy
     env_file:
       - .env
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - type: bind
         source: ${HOST_TICKET_INBOX_DIR:-/opt/sirena-olt-client/received-files}
@@ -46,5 +46,22 @@ services:
         source: ${HOST_ONEC_PAYMENTS_SOURCE_DIR:-/mnt/1c-payments}
         target: /mnt/1c-payments
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: ticketflow-caddy
+    depends_on:
+      - app
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

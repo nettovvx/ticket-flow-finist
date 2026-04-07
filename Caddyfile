@@ -1,0 +1,11 @@
+{
+	email {$CADDY_ACME_EMAIL}
+}
+
+# Production:
+# - set CADDY_DOMAIN in .env (for example: ticket.example.com)
+# - Caddy will issue/renew TLS cert automatically via Let's Encrypt.
+{$CADDY_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8000
+}

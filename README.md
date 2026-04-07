@@ -5,7 +5,7 @@ TicketFlow после рефакторинга:
 - Backend: `FastAPI` + `SQLAlchemy` + `Alembic` + session-auth.
 - Frontend: `React` + `Vite` (SPA, собирается в `app/static/web`).
 - База данных: `PostgreSQL`.
-- Контур запуска: `Docker Compose` (`app + postgres`).
+- Контур запуска: `Docker Compose` (`app + postgres + caddy`).
 
 ## Что уже реализовано
 
@@ -42,7 +42,7 @@ docker compose up --build
 
 3. Откройте:
 
-- `http://localhost:8000`
+- `http://localhost`
 
 При старте `app` автоматически выполняет:
 
@@ -51,6 +51,14 @@ alembic upgrade head
 ```
 
 и затем поднимает `uvicorn`.
+
+## Caddy (домен и SSL)
+
+- В `docker-compose` добавлен `caddy` как reverse proxy перед `app`.
+- Для production укажите в `.env`:
+  - `CADDY_DOMAIN=ваш.домен`
+  - `CADDY_ACME_EMAIL=you@example.com`
+- Caddy автоматически выпустит и продлит сертификат Let's Encrypt.
 
 Важно: для `app` используются bind-mount каталоги с хоста (Debian12):
 
@@ -137,12 +145,4 @@ npm run build
 uvicorn app.main:app --reload
 ```
 
-## Импорт снапшота
-
-После применения миграций можно загрузить тестовые XML:
-
-```bash
-python scripts/import_backup_snapshot.py 2025-11-13
-```
-
-По умолчанию скрипт берет каталог `2025-11-13`.
+Тестовые XML/снапшоты не включаются в Docker-образ и не требуются для работы конвейера.
