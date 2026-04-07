@@ -7,15 +7,22 @@ import re
 import shutil
 import xml.etree.ElementTree as ET
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, insert, literal, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.models.document import Document, DocumentEvent, DocumentLink, DocumentPayload
+from app.models.archive import (
+    ArchivedDocument,
+    ArchivedDocumentEvent,
+    ArchivedDocumentLink,
+    ArchivedDocumentPayload,
+    ArchivedDocumentUserState,
+)
+from app.models.document import Document, DocumentEvent, DocumentLink, DocumentPayload, DocumentUserState
 
 
 logger = logging.getLogger(__name__)
@@ -199,6 +206,56 @@ def _ensure_link(
             reason=reason,
         )
     )
+
+
+def _select_archive_component_ids(candidate_ids: list[str], link_rows: list[tuple[str, str]], batch_size: int) -> list[str]:
+    if not candidate_ids or batch_size <= 0:
+        return []
+
+    candidate_set = set(candidate_ids)
+    adjacency: dict[str, set[str]] = {item: set() for item in candidate_ids}
+    externally_linked: set[str] = set()
+
+    for from_id, to_id in link_rows:
+        from_in = from_id in candidate_set
+        to_in = to_id in candidate_set
+        if from_in and to_in:
+            adjacency[from_id].add(to_id)
+            adjacency[to_id].add(from_id)
+            continue
+        if from_in:
+            externally_linked.add(from_id)
+        if to_in:
+            externally_linked.add(to_id)
+
+    visited: set[str] = set()
+    ordered_components: list[tuple[int, list[str]]] = []
+    index_by_id = {item: index for index, item in enumerate(candidate_ids)}
+
+    for document_id in candidate_ids:
+        if document_id in visited:
+            continue
+        stack = [document_id]
+        component: list[str] = []
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            component.append(current)
+            stack.extend(adjacency[current] - visited)
+        component.sort(key=index_by_id.__getitem__)
+        ordered_components.append((index_by_id[component[0]], component))
+
+    selected: list[str] = []
+    for _, component in sorted(ordered_components, key=lambda item: item[0]):
+        if any(item in externally_linked for item in component):
+            continue
+        if len(selected) + len(component) > batch_size:
+            continue
+        selected.extend(component)
+
+    return selected
 
 
 class FilePipelineService:
@@ -391,6 +448,25 @@ class FilePipelineService:
         payload = DocumentPayload(document_id=document.id)
         document.payload = payload
         return payload
+
+    def _is_document_archived(
+        self,
+        db: Session,
+        *,
+        doc_type: str,
+        flow_group: str,
+        source_system: str,
+        file_name: str,
+    ) -> bool:
+        archived_id = db.scalar(
+            select(ArchivedDocument.id).where(
+                ArchivedDocument.doc_type == doc_type,
+                ArchivedDocument.flow_group == flow_group,
+                ArchivedDocument.source_system == source_system,
+                ArchivedDocument.file_name == file_name,
+            )
+        )
+        return archived_id is not None
 
     def _apply_ticket_payload(self, document: Document, payload_data: dict[str, object]) -> None:
         payload = self._ensure_payload(document)
@@ -745,6 +821,15 @@ class FilePipelineService:
     def _process_ticket_results(self, db: Session) -> None:
         for file_path in self._iter_xml_files(self.settings.ftp_tickets_processed_dir):
             try:
+                if self._is_document_archived(
+                    db,
+                    doc_type="ticket",
+                    flow_group="tickets",
+                    source_system="sirena",
+                    file_name=file_path.name,
+                ):
+                    self._mark_file_processed(self.settings.ftp_tickets_processed_dir, file_path)
+                    continue
                 self._update_ticket_result(db, file_path, success=True)
                 db.commit()
                 self._mark_file_processed(self.settings.ftp_tickets_processed_dir, file_path)
@@ -754,6 +839,15 @@ class FilePipelineService:
 
         for file_path in self._iter_xml_files(self.settings.ftp_tickets_error_dir):
             try:
+                if self._is_document_archived(
+                    db,
+                    doc_type="ticket",
+                    flow_group="tickets",
+                    source_system="sirena",
+                    file_name=file_path.name,
+                ):
+                    self._mark_file_processed(self.settings.ftp_tickets_error_dir, file_path)
+                    continue
                 self._update_ticket_result(db, file_path, success=False)
                 db.commit()
                 self._mark_file_processed(self.settings.ftp_tickets_error_dir, file_path)
@@ -833,6 +927,15 @@ class FilePipelineService:
             if not self._is_stable(file_path):
                 continue
             try:
+                if self._is_document_archived(
+                    db,
+                    doc_type="realization",
+                    flow_group="tickets",
+                    source_system="mom",
+                    file_name=file_path.name,
+                ):
+                    self._mark_file_processed(self.settings.onec_realisations_target_dir, file_path)
+                    continue
                 parsed = self._parse_realisation_payload(file_path)
                 occurred_at = parsed["occurred_at"] or _file_created_at(file_path)
                 document = self._ensure_document(
@@ -907,6 +1010,15 @@ class FilePipelineService:
                 if not self._is_stable(file_path):
                     continue
                 try:
+                    if self._is_document_archived(
+                        db,
+                        doc_type="realization",
+                        flow_group="tickets",
+                        source_system="mom",
+                        file_name=file_path.name,
+                    ):
+                        self._mark_file_processed(folder, file_path)
+                        continue
                     parsed = self._parse_realisation_payload(file_path)
                     occurred_at = _file_created_at(file_path)
                     document = self._ensure_document(
@@ -1029,6 +1141,237 @@ class FilePipelineService:
                 db.rollback()
                 logger.exception("Failed to process payment error-file: %s", file_path)
 
+    def _archive_success_documents(self, db: Session) -> int:
+        batch_size = max(1, self.settings.archive_batch_size)
+        cutoff = _utc_now() - timedelta(seconds=max(0, self.settings.archive_success_delay_sec))
+        scan_limit = max(batch_size * 8, batch_size)
+
+        candidate_ids = db.scalars(
+            select(Document.id)
+            .where(
+                Document.status == "success",
+                func.coalesce(Document.completed_at, Document.updated_at) <= cutoff,
+            )
+            .order_by(func.coalesce(Document.completed_at, Document.updated_at).asc(), Document.created_at.asc())
+            .limit(scan_limit)
+        ).all()
+        if not candidate_ids:
+            return 0
+
+        link_rows = [
+            (row.from_document_id, row.to_document_id)
+            for row in db.execute(
+                select(DocumentLink.from_document_id, DocumentLink.to_document_id).where(
+                    or_(
+                        DocumentLink.from_document_id.in_(candidate_ids),
+                        DocumentLink.to_document_id.in_(candidate_ids),
+                    )
+                )
+            ).all()
+        ]
+        archive_ids = _select_archive_component_ids(candidate_ids, link_rows, batch_size)
+        if not archive_ids:
+            return 0
+
+        archived_at = _utc_now()
+
+        db.execute(
+            insert(ArchivedDocument).from_select(
+                [
+                    "doc_type",
+                    "flow_group",
+                    "source_system",
+                    "status",
+                    "current_step",
+                    "title",
+                    "file_name",
+                    "file_path",
+                    "file_size",
+                    "sha256",
+                    "business_key",
+                    "error_message",
+                    "occurred_at",
+                    "completed_at",
+                    "archived_at",
+                    "created_at",
+                    "updated_at",
+                    "id",
+                ],
+                select(
+                    Document.doc_type,
+                    Document.flow_group,
+                    Document.source_system,
+                    Document.status,
+                    Document.current_step,
+                    Document.title,
+                    Document.file_name,
+                    Document.file_path,
+                    Document.file_size,
+                    Document.sha256,
+                    Document.business_key,
+                    Document.error_message,
+                    Document.occurred_at,
+                    Document.completed_at,
+                    literal(archived_at),
+                    Document.created_at,
+                    Document.updated_at,
+                    Document.id,
+                ).where(Document.id.in_(archive_ids)),
+            )
+        )
+        db.execute(
+            insert(ArchivedDocumentPayload).from_select(
+                [
+                    "document_id",
+                    "passenger_name",
+                    "ticket_number",
+                    "exchange_ticket_number",
+                    "pnr",
+                    "mom_number",
+                    "payment_number",
+                    "payment_purpose",
+                    "client_name",
+                    "amount",
+                    "currency",
+                    "direction",
+                    "document_date",
+                    "route",
+                    "extra_json",
+                    "archived_at",
+                    "created_at",
+                    "updated_at",
+                    "id",
+                ],
+                select(
+                    DocumentPayload.document_id,
+                    DocumentPayload.passenger_name,
+                    DocumentPayload.ticket_number,
+                    DocumentPayload.exchange_ticket_number,
+                    DocumentPayload.pnr,
+                    DocumentPayload.mom_number,
+                    DocumentPayload.payment_number,
+                    DocumentPayload.payment_purpose,
+                    DocumentPayload.client_name,
+                    DocumentPayload.amount,
+                    DocumentPayload.currency,
+                    DocumentPayload.direction,
+                    DocumentPayload.document_date,
+                    DocumentPayload.route,
+                    DocumentPayload.extra_json,
+                    literal(archived_at),
+                    DocumentPayload.created_at,
+                    DocumentPayload.updated_at,
+                    DocumentPayload.id,
+                ).where(DocumentPayload.document_id.in_(archive_ids)),
+            )
+        )
+        db.execute(
+            insert(ArchivedDocumentEvent).from_select(
+                [
+                    "document_id",
+                    "event_type",
+                    "step_code",
+                    "status",
+                    "message",
+                    "occurred_at",
+                    "duration_ms",
+                    "meta_json",
+                    "archived_at",
+                    "created_at",
+                    "updated_at",
+                    "id",
+                ],
+                select(
+                    DocumentEvent.document_id,
+                    DocumentEvent.event_type,
+                    DocumentEvent.step_code,
+                    DocumentEvent.status,
+                    DocumentEvent.message,
+                    DocumentEvent.occurred_at,
+                    DocumentEvent.duration_ms,
+                    DocumentEvent.meta_json,
+                    literal(archived_at),
+                    DocumentEvent.created_at,
+                    DocumentEvent.updated_at,
+                    DocumentEvent.id,
+                ).where(DocumentEvent.document_id.in_(archive_ids)),
+            )
+        )
+        db.execute(
+            insert(ArchivedDocumentUserState).from_select(
+                [
+                    "document_id",
+                    "user_id",
+                    "is_viewed",
+                    "is_hidden",
+                    "hidden_reason",
+                    "viewed_at",
+                    "hidden_at",
+                    "archived_at",
+                    "created_at",
+                    "updated_at",
+                    "id",
+                ],
+                select(
+                    DocumentUserState.document_id,
+                    DocumentUserState.user_id,
+                    DocumentUserState.is_viewed,
+                    DocumentUserState.is_hidden,
+                    DocumentUserState.hidden_reason,
+                    DocumentUserState.viewed_at,
+                    DocumentUserState.hidden_at,
+                    literal(archived_at),
+                    DocumentUserState.created_at,
+                    DocumentUserState.updated_at,
+                    DocumentUserState.id,
+                ).where(DocumentUserState.document_id.in_(archive_ids)),
+            )
+        )
+        db.execute(
+            insert(ArchivedDocumentLink).from_select(
+                [
+                    "from_document_id",
+                    "to_document_id",
+                    "link_type",
+                    "confidence",
+                    "reason",
+                    "archived_at",
+                    "created_at",
+                    "updated_at",
+                    "id",
+                ],
+                select(
+                    DocumentLink.from_document_id,
+                    DocumentLink.to_document_id,
+                    DocumentLink.link_type,
+                    DocumentLink.confidence,
+                    DocumentLink.reason,
+                    literal(archived_at),
+                    DocumentLink.created_at,
+                    DocumentLink.updated_at,
+                    DocumentLink.id,
+                ).where(
+                    DocumentLink.from_document_id.in_(archive_ids),
+                    DocumentLink.to_document_id.in_(archive_ids),
+                ),
+            )
+        )
+
+        db.execute(
+            delete(DocumentLink).where(
+                DocumentLink.from_document_id.in_(archive_ids),
+                DocumentLink.to_document_id.in_(archive_ids),
+            )
+        )
+        db.execute(delete(DocumentEvent).where(DocumentEvent.document_id.in_(archive_ids)))
+        db.execute(delete(DocumentUserState).where(DocumentUserState.document_id.in_(archive_ids)))
+        db.execute(delete(DocumentPayload).where(DocumentPayload.document_id.in_(archive_ids)))
+        db.execute(delete(Document).where(Document.id.in_(archive_ids)))
+        db.commit()
+
+        logger.info("Archived %s successful documents", len(archive_ids))
+        return len(archive_ids)
+
     def _process_once(self) -> None:
         with SessionLocal() as db:
             self._process_ticket_inbox(db)
@@ -1038,3 +1381,8 @@ class FilePipelineService:
             self._process_existing_onec_realisation_results(db)
             self._process_payments(db)
             self._process_payment_results(db)
+            try:
+                self._archive_success_documents(db)
+            except Exception:
+                db.rollback()
+                logger.exception("Failed to archive successful documents")

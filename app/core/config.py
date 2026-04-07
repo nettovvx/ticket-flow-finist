@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     file_scan_interval_sec: int = Field(default=5, alias="FILE_SCAN_INTERVAL_SEC")
     file_stable_age_sec: int = Field(default=3, alias="FILE_STABLE_AGE_SEC")
     file_scan_batch_size: int = Field(default=250, alias="FILE_SCAN_BATCH_SIZE")
+    archive_success_delay_sec: int = Field(default=1800, alias="ARCHIVE_SUCCESS_DELAY_SEC")
+    archive_batch_size: int = Field(default=500, alias="ARCHIVE_BATCH_SIZE")
 
     base_dir: Path = BASE_DIR
     static_dir: Path = BASE_DIR / "app" / "static"
