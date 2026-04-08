@@ -100,6 +100,103 @@ function stepMeta(step) {
   return parts.join(" · ");
 }
 
+function eventStatus(document, stepCode) {
+  const events = Array.isArray(document?.events) ? document.events : [];
+  const statuses = events.filter((event) => event.step_code === stepCode).map((event) => event.status);
+  if (statuses.length === 0) {
+    return "pending";
+  }
+  if (statuses.includes("error")) {
+    return "error";
+  }
+  if (statuses.includes("success")) {
+    return "success";
+  }
+  if (statuses.includes("in_progress")) {
+    return "in_progress";
+  }
+  return statuses[statuses.length - 1] || "pending";
+}
+
+function eventOccurredAt(document, stepCode) {
+  const events = Array.isArray(document?.events) ? document.events : [];
+  const timestamps = events
+    .filter((event) => event.step_code === stepCode && event.occurred_at)
+    .map((event) => new Date(event.occurred_at).getTime())
+    .filter((value) => Number.isFinite(value));
+  if (timestamps.length === 0) {
+    return null;
+  }
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function formatDelta(seconds) {
+  if (seconds === null || seconds === undefined) {
+    return null;
+  }
+  if (seconds < 60) {
+    return `${seconds}с`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const sec = seconds % 60;
+  if (minutes < 60) {
+    return `${minutes}м ${sec}с`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const min = minutes % 60;
+  if (hours < 24) {
+    return `${hours}ч ${min}м ${sec}с`;
+  }
+  const days = Math.floor(hours / 24);
+  const hrs = hours % 24;
+  return `${days}д ${hrs}ч ${min}м`;
+}
+
+function withStepDeltas(steps) {
+  let previousMs = null;
+  return steps.map((step) => {
+    let deltaSeconds = null;
+    const currentMs = step.occurred_at ? new Date(step.occurred_at).getTime() : null;
+    if (Number.isFinite(previousMs) && Number.isFinite(currentMs)) {
+      const raw = Math.floor((currentMs - previousMs) / 1000);
+      if (raw >= 0) {
+        deltaSeconds = raw;
+      }
+    }
+    if (Number.isFinite(currentMs)) {
+      previousMs = currentMs;
+    }
+    return {
+      ...step,
+      delta_seconds: deltaSeconds,
+      delta_human: formatDelta(deltaSeconds),
+    };
+  });
+}
+
+function paymentFlowSteps(document) {
+  return withStepDeltas([
+    {
+      code: "payment_received_from_1c",
+      label: "Платежка сформирована",
+      status: eventStatus(document, "payment_received_from_1c"),
+      occurred_at: eventOccurredAt(document, "payment_received_from_1c"),
+    },
+    {
+      code: "payment_copied_to_ftp",
+      label: "Платежка перемещена на FTP",
+      status: eventStatus(document, "payment_copied_to_ftp"),
+      occurred_at: eventOccurredAt(document, "payment_copied_to_ftp"),
+    },
+    {
+      code: "payment_seen_by_mom",
+      label: "MOM обработал платежку",
+      status: eventStatus(document, "payment_seen_by_mom"),
+      occurred_at: eventOccurredAt(document, "payment_seen_by_mom"),
+    },
+  ]);
+}
+
 function StatusPill({ status }) {
   return <span className={`pill status-${status}`}>{status}</span>;
 }
@@ -254,6 +351,7 @@ function PaymentCards({ listing, onOpenDocument }) {
     <section className="cards-grid">
       {rows.map((row, index) => {
         const entries = Array.isArray(row.document.payload?.extra_json?.entries) ? row.document.payload.extra_json.entries : [];
+        const steps = paymentFlowSteps(row.document);
         return (
           <article key={row.document.id} className="card animated-card" style={{ "--stagger": index }}>
             <HeaderBlock
@@ -261,6 +359,16 @@ function PaymentCards({ listing, onOpenDocument }) {
               subtitle={row.document.file_name}
               right={<StatusPill status={row.document.status} />}
             />
+
+            <div className="steps">
+              {steps.map((step) => (
+                <div key={step.code} className={`step status-${step.status}`}>
+                  <strong>{step.label}</strong>
+                  <small>{stepMeta(step)}</small>
+                </div>
+              ))}
+            </div>
+
             <div className="row-actions">
               <small>
                 MOM: {row.document.payload?.mom_number || "—"} · Сумма: {row.document.payload?.amount ?? "—"}{" "}

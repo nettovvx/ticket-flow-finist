@@ -146,9 +146,10 @@ def serialize_ticket_listing(raw_listing: dict[str, object]) -> dict[str, object
 def serialize_documents_listing(raw_listing: dict[str, object]) -> dict[str, object]:
     rows = []
     for document, _, state in raw_listing["rows"]:
+        include_events = document.flow_group == "payments"
         rows.append(
             {
-                "document": serialize_document(document),
+                "document": serialize_document(document, include_events=include_events),
                 "state": serialize_state(state),
             }
         )
