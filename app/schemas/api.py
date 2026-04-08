@@ -156,6 +156,31 @@ class ArchiveListingResponse(BaseModel):
     has_more: bool
 
 
+class FolderQueueItemResponse(BaseModel):
+    key: str
+    label: str
+    path: str
+    xml_count: int
+    exists: bool
+    error: str | None = None
+
+
+class DailyPipelineMetricResponse(BaseModel):
+    code: str
+    label: str
+    success: int
+    error: int
+    total: int
+
+
+class OperationsOverviewResponse(BaseModel):
+    generated_at: datetime
+    folder_xml_total: int
+    folders: list[FolderQueueItemResponse]
+    daily_metrics: list[DailyPipelineMetricResponse]
+    daily_totals: dict[str, int]
+
+
 class DocumentDetailResponse(BaseModel):
     document: DocumentResponse
     root_ticket: DocumentResponse

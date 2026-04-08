@@ -247,6 +247,133 @@ select {
   font-size: 1.8rem;
 }
 
+.ops-layout {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 12px;
+}
+
+.ops-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+  animation: float-up 0.5s cubic-bezier(0.2, 0.72, 0.2, 1) both;
+}
+
+.ops-panel:nth-child(1) {
+  animation-delay: 120ms;
+}
+
+.ops-panel:nth-child(2) {
+  animation-delay: 180ms;
+}
+
+.ops-folders {
+  display: grid;
+  gap: 8px;
+  max-height: 270px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.ops-folder {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #f9fbff;
+  display: grid;
+  gap: 5px;
+}
+
+.ops-folder-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.ops-folder-top strong {
+  font-size: 0.9rem;
+}
+
+.ops-folder small {
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.ops-folder-warning {
+  color: var(--danger) !important;
+}
+
+.count-badge {
+  display: inline-flex;
+  min-width: 32px;
+  justify-content: center;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8eefc;
+  color: #1d3e84;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.ops-totals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ops-totals > div {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 10px;
+  background: #fafcff;
+}
+
+.ops-totals small {
+  color: var(--muted);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.ops-totals strong {
+  font-size: 1.2rem;
+}
+
+.ops-metrics {
+  display: grid;
+  gap: 8px;
+}
+
+.ops-metric {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.ops-metric:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.ops-metric-values {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ops-total {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .toolbar {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -819,6 +946,14 @@ select {
 @media (max-width: 1024px) {
   .stats-row {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ops-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-totals {
+    grid-template-columns: 1fr;
   }
 
   .filters {

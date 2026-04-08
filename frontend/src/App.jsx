@@ -213,6 +213,70 @@ function HeaderBlock({ title, subtitle, right }) {
   );
 }
 
+function OperationsOverview({ overview, loading }) {
+  if (!overview && !loading) {
+    return null;
+  }
+
+  const folders = Array.isArray(overview?.folders) ? overview.folders : [];
+  const metrics = Array.isArray(overview?.daily_metrics) ? overview.daily_metrics : [];
+  const totals = overview?.daily_totals ?? { success: 0, error: 0, events: 0 };
+
+  return (
+    <section className="ops-layout">
+      <article className="ops-panel">
+        <HeaderBlock title="XML в папках" subtitle={`Всего XML сейчас: ${overview?.folder_xml_total ?? 0}`} />
+        {loading && !overview && <p className="loading">Собираем метрики...</p>}
+        <div className="ops-folders">
+          {folders.map((folder) => (
+            <div key={folder.key} className="ops-folder">
+              <div className="ops-folder-top">
+                <strong>{folder.label}</strong>
+                <span className="count-badge">{folder.xml_count}</span>
+              </div>
+              <small>{folder.path}</small>
+              {!folder.exists && (
+                <small className="ops-folder-warning">{folder.error ? `Ошибка: ${folder.error}` : "Папка недоступна"}</small>
+              )}
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="ops-panel">
+        <HeaderBlock title="Статистика за день" subtitle={`Обновлено: ${formatDate(overview?.generated_at)}`} />
+        <div className="ops-totals">
+          <div>
+            <small>Успешных шагов</small>
+            <strong>{totals.success ?? 0}</strong>
+          </div>
+          <div>
+            <small>Ошибок</small>
+            <strong>{totals.error ?? 0}</strong>
+          </div>
+          <div>
+            <small>Всего событий</small>
+            <strong>{totals.events ?? 0}</strong>
+          </div>
+        </div>
+
+        <div className="ops-metrics">
+          {metrics.map((metric) => (
+            <div key={metric.code} className="ops-metric">
+              <span>{metric.label}</span>
+              <div className="ops-metric-values">
+                <span className="pill status-success">OK: {metric.success}</span>
+                <span className="pill status-error">ERR: {metric.error}</span>
+                <span className="ops-total">Всего: {metric.total}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function deriveTicketGroupsFromEntries(entries) {
   const ticketCases = [];
   for (const entry of entries) {
@@ -653,6 +717,8 @@ export default function App() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [overview, setOverview] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
 
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -684,6 +750,7 @@ export default function App() {
     }
     setDetail(null);
     fetchMonitorListing({ offset: 0, limit: PAGE_SIZE });
+    fetchOverview();
   }, [user, activeTab, filters]);
 
   useEffect(() => {
@@ -693,6 +760,7 @@ export default function App() {
     const intervalId = window.setInterval(() => {
       const currentLimit = Math.max(getLoadedCount(listing, activeTab), PAGE_SIZE);
       fetchMonitorListing({ offset: 0, limit: currentLimit, silent: true });
+      fetchOverview({ silent: true });
     }, AUTO_REFRESH_MS);
     return () => window.clearInterval(intervalId);
   }, [user, activeTab, filters, listing]);
@@ -781,6 +849,28 @@ export default function App() {
         setLoading(false);
         setLoadingMore(false);
         setRefreshing(false);
+      }
+    }
+  }
+
+  async function fetchOverview({ silent = false } = {}) {
+    if (!user) {
+      return;
+    }
+    if (!silent) {
+      setOverviewLoading(true);
+    }
+
+    try {
+      const data = await api("/api/documents/overview");
+      setOverview(data);
+    } catch (overviewError) {
+      if (!silent) {
+        setError(overviewError.message);
+      }
+    } finally {
+      if (!silent) {
+        setOverviewLoading(false);
       }
     }
   }
@@ -976,6 +1066,8 @@ export default function App() {
           <strong>{counters.hidden ?? 0}</strong>
         </article>
       </section>
+
+      <OperationsOverview overview={overview} loading={overviewLoading} />
 
       <section className="toolbar">
         <div className="tabs">

@@ -1,11 +1,14 @@
 from collections import Counter
 from datetime import datetime, time, timezone
+from pathlib import Path
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
+from app.core.config import get_settings
 from app.models.archive import ArchivedDocument, ArchivedDocumentPayload
-from app.models.document import Document, DocumentLink, DocumentPayload, DocumentUserState
+from app.models.archive import ArchivedDocumentEvent
+from app.models.document import Document, DocumentEvent, DocumentLink, DocumentPayload, DocumentUserState
 from app.models.user import User
 
 
@@ -619,4 +622,120 @@ def load_document_with_context(db: Session, document_id: str) -> dict[str, objec
         "linked_realizations": sorted(linked_realizations, key=_document_sort_time, reverse=True),
         "linked_payments": sorted(linked_payments, key=_document_sort_time, reverse=True),
         "steps": detail_steps,
+    }
+
+
+FOLDER_QUEUE_SPECS: tuple[tuple[str, str, str], ...] = (
+    ("ticket_inbox", "Sirena: билеты (вход)", "ticket_inbox_dir"),
+    ("ticket_ftp_in", "FTP: билеты (вход)", "ftp_tickets_dir"),
+    ("ticket_ftp_processed", "FTP: билеты (processed)", "ftp_tickets_processed_dir"),
+    ("ticket_ftp_error", "FTP: билеты (error)", "ftp_tickets_error_dir"),
+    ("realization_ftp_in", "FTP: реализации (вход)", "ftp_realisations_dir"),
+    ("realization_1c_target", "1С: реализации (inbox)", "onec_realisations_target_dir"),
+    ("realization_1c_archive", "1С: реализации (archive)", "onec_realisations_archive_dir"),
+    ("realization_1c_bad", "1С: реализации (bad)", "onec_realisations_bad_dir"),
+    ("realization_1c_del_bad", "1С: реализации (del_bad)", "onec_realisations_del_bad_dir"),
+    ("realization_1c_empty", "1С: реализации (empty)", "onec_realisations_empty_dir"),
+    ("payment_1c_in", "1С: платежки (вход)", "onec_payments_source_dir"),
+    ("payment_ftp_in", "FTP: платежки (вход)", "ftp_payments_dir"),
+    ("payment_ftp_processed", "FTP: платежки (processed)", "ftp_payments_processed_dir"),
+    ("payment_ftp_error", "FTP: платежки (error)", "ftp_payments_error_dir"),
+)
+
+DAILY_METRIC_SPECS: tuple[tuple[str, str, str], ...] = (
+    ("tickets_created", "Билеты: появились в папке", "ticket_issued_in_sirena"),
+    ("tickets_sent_to_ftp", "Билеты: перемещены на FTP", "ticket_copied_to_ftp"),
+    ("tickets_mom_processed", "Билеты: MOM обработал", "ticket_seen_by_mom"),
+    ("tickets_realization_received", "Билеты: получены реализации", "realization_received_from_mom"),
+    ("tickets_realization_sent_1c", "Билеты: реализации отправлены в 1С", "realization_copied_to_smb"),
+    ("tickets_final_1c", "Билеты: финал 1С", "realization_accepted_by_1c"),
+    ("payments_created", "Платежки: появились в папке", "payment_received_from_1c"),
+    ("payments_sent_to_ftp", "Платежки: перемещены на FTP", "payment_copied_to_ftp"),
+    ("payments_mom_processed", "Платежки: MOM обработал", "payment_seen_by_mom"),
+)
+
+
+def _count_xml_files(folder: Path) -> tuple[int, bool, str | None]:
+    try:
+        if not folder.exists() or not folder.is_dir():
+            return 0, False, None
+        total = sum(1 for item in folder.iterdir() if item.is_file() and item.suffix.lower() == ".xml")
+        return total, True, None
+    except Exception as exc:
+        return 0, False, str(exc)
+
+
+def _collect_event_counts(db: Session, start_utc: datetime, end_utc: datetime) -> dict[tuple[str, str], int]:
+    counts: dict[tuple[str, str], int] = {}
+    for model in (DocumentEvent, ArchivedDocumentEvent):
+        rows = db.execute(
+            select(
+                model.step_code,
+                model.status,
+                func.count(func.distinct(model.document_id)),
+            )
+            .where(
+                model.occurred_at >= start_utc,
+                model.occurred_at <= end_utc,
+            )
+            .group_by(model.step_code, model.status)
+        ).all()
+        for step_code, status, value in rows:
+            key = (step_code, status)
+            counts[key] = counts.get(key, 0) + int(value or 0)
+    return counts
+
+
+def build_operations_overview(db: Session) -> dict[str, object]:
+    settings = get_settings()
+    generated_at = _utc_now()
+    day_start = generated_at.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = generated_at.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    folders: list[dict[str, object]] = []
+    total_xml = 0
+    for key, label, attr_name in FOLDER_QUEUE_SPECS:
+        path_value = Path(getattr(settings, attr_name))
+        xml_count, exists, error = _count_xml_files(path_value)
+        total_xml += xml_count
+        folders.append(
+            {
+                "key": key,
+                "label": label,
+                "path": str(path_value),
+                "xml_count": xml_count,
+                "exists": exists,
+                "error": error,
+            }
+        )
+
+    event_counts = _collect_event_counts(db, day_start, day_end)
+    daily_metrics: list[dict[str, object]] = []
+    total_success = 0
+    total_error = 0
+    for code, label, step_code in DAILY_METRIC_SPECS:
+        success_count = int(event_counts.get((step_code, "success"), 0))
+        error_count = int(event_counts.get((step_code, "error"), 0))
+        total_success += success_count
+        total_error += error_count
+        daily_metrics.append(
+            {
+                "code": code,
+                "label": label,
+                "success": success_count,
+                "error": error_count,
+                "total": success_count + error_count,
+            }
+        )
+
+    return {
+        "generated_at": generated_at,
+        "folder_xml_total": total_xml,
+        "folders": folders,
+        "daily_metrics": daily_metrics,
+        "daily_totals": {
+            "success": total_success,
+            "error": total_error,
+            "events": total_success + total_error,
+        },
     }

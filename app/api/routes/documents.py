@@ -14,9 +14,16 @@ from app.schemas.api import (
     DocumentDetailResponse,
     DocumentsListingResponse,
     HideDocumentRequest,
+    OperationsOverviewResponse,
     TicketsListingResponse,
 )
-from app.services.dashboard import build_archived_document_listing, build_document_listing, build_ticket_case_listing, load_document_with_context
+from app.services.dashboard import (
+    build_archived_document_listing,
+    build_document_listing,
+    build_operations_overview,
+    build_ticket_case_listing,
+    load_document_with_context,
+)
 from app.services.serializers import serialize_archived_documents_listing, serialize_document_detail, serialize_documents_listing, serialize_ticket_listing
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -100,6 +107,15 @@ def archive_listing(
         offset=offset,
     )
     return ArchiveListingResponse.model_validate(serialize_archived_documents_listing(listing))
+
+
+@router.get("/overview", response_model=OperationsOverviewResponse)
+def operations_overview(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> OperationsOverviewResponse:
+    overview = build_operations_overview(db)
+    return OperationsOverviewResponse.model_validate(overview)
 
 
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
