@@ -29,37 +29,6 @@ logger = logging.getLogger(__name__)
 MOM_REF_PATTERN = re.compile(r"[MМ][OО][MМ]-\d{7}")
 REALIZATION_NS = {"x": "http://www.gridnine.com/export/xml"}
 TICKET_SUCCESS_CHECKPOINTS = ("ticket_seen_by_mom", "realization_copied_to_smb")
-REALIZATION_RESULT_STATUSES = {
-    "archive": {
-        "step_status": "success",
-        "document_status": "success",
-        "message": "Реализация обработана 1С и попала в archive",
-        "ticket_message": "Связанная реализация обработана 1С успешно",
-        "error_message": None,
-    },
-    "bad": {
-        "step_status": "error",
-        "document_status": "error",
-        "message": "Реализация попала в папку bad после обработки 1С",
-        "ticket_message": "Связанная реализация попала в папку bad после обработки 1С",
-        "error_message": "1С поместила реализацию в папку bad",
-    },
-    "del_bad": {
-        "step_status": "error",
-        "document_status": "error",
-        "message": "Реализация попала в папку del_bad после обработки 1С",
-        "ticket_message": "Связанная реализация попала в папку del_bad после обработки 1С",
-        "error_message": "1С поместила реализацию в папку del_bad",
-    },
-    "empty": {
-        "step_status": "error",
-        "document_status": "error",
-        "message": "Реализация попала в папку empty после обработки 1С",
-        "ticket_message": "Связанная реализация попала в папку empty после обработки 1С",
-        "error_message": "1С поместила реализацию в папку empty",
-    },
-}
-
 
 def _safe_float(value: str | None) -> float | None:
     if not value:
@@ -426,28 +395,6 @@ class FilePipelineService:
         payload.document_date = parsed["payload"].get("document_date")
         payload.extra_json = parsed["payload"].get("extra_json")
 
-    def _apply_realisation_result(
-        self,
-        document: Document,
-        *,
-        occurred_at: datetime | None,
-        result_code: str,
-    ) -> dict[str, str | None]:
-        result = REALIZATION_RESULT_STATUSES[result_code]
-        document.current_step = "realization_copied_to_smb"
-        document.status = result["document_status"]
-        document.error_message = result["error_message"]
-        document.completed_at = occurred_at if result["document_status"] == "success" else None
-        _append_event(
-            document,
-            step_code="realization_copied_to_smb",
-            status=result["step_status"],
-            message=result["message"],
-            occurred_at=occurred_at,
-            meta_json={"result_code": result_code},
-        )
-        return result
-
     def _ensure_payload(self, document: Document) -> DocumentPayload:
         payload = document.payload
         if payload:
@@ -596,8 +543,6 @@ class FilePipelineService:
         occurred_at: datetime | None,
         *,
         received_status: str = "success",
-        received_message: str | None = None,
-        ticket_error_message: str | None = None,
     ) -> None:
         if not pnrs:
             return
@@ -648,9 +593,7 @@ class FilePipelineService:
         occurred_at: datetime | None,
         *,
         status: str = "success",
-        message: str = "Realization moved to 1C",
         ticket_error_message: str | None = None,
-        result_code: str | None = None,
     ) -> None:
         ticket_ids = db.scalars(
             select(DocumentLink.from_document_id).where(
@@ -680,7 +623,7 @@ class FilePipelineService:
             if status == "error":
                 ticket.status = "error"
                 ticket.completed_at = None
-                ticket.error_message = ticket_error_message or "Linked realization finished with an error in 1C"
+                ticket.error_message = ticket_error_message or "Связанная реализация завершилась ошибкой при обработке"
                 continue
             if ticket.status != "error":
                 ticket.error_message = None
@@ -705,13 +648,18 @@ class FilePipelineService:
 
     def _update_ticket_result(self, db: Session, file_path: Path, *, success: bool) -> None:
         occurred_at = _file_created_at(file_path)
-        document = self._ensure_document(
-            db,
-            doc_type="ticket",
-            flow_group="tickets",
-            source_system="sirena",
-            file_name=file_path.name,
+        document = db.scalar(
+            select(Document)
+            .where(
+                Document.doc_type == "ticket",
+                Document.flow_group == "tickets",
+                Document.source_system == "sirena",
+                Document.file_name == file_path.name,
+            )
+            .options(selectinload(Document.payload), selectinload(Document.events), selectinload(Document.outgoing_links))
         )
+        if not document:
+            return
         self._touch_file_meta(document, file_path)
         if not document.occurred_at:
             document.occurred_at = occurred_at
@@ -868,63 +816,8 @@ class FilePipelineService:
                 continue
 
             try:
-                parsed = self._parse_realisation_payload(source_file)
-                occurred_at = parsed["occurred_at"] or _file_created_at(source_file)
-                document = self._ensure_document(
-                    db,
-                    doc_type="realization",
-                    flow_group="tickets",
-                    source_system="mom",
-                    file_name=source_file.name,
-                )
-                self._touch_file_meta(document, source_file)
-                document.occurred_at = occurred_at
-                document.current_step = "realization_received_from_mom"
-                document.status = "error" if parsed["deleted"] else "success"
-                document.error_message = "MOM пометил реализацию как deleted" if parsed["deleted"] else None
-                document.title = parsed["number"] or source_file.name
-                document.business_key = parsed["number"]
-
-                payload = self._ensure_payload(document)
-                payload.mom_number = parsed["payload"].get("mom_number")
-                payload.client_name = parsed["payload"].get("client_name")
-                payload.currency = parsed["payload"].get("currency")
-                payload.pnr = parsed["payload"].get("pnr")
-                payload.document_date = parsed["payload"].get("document_date")
-                payload.extra_json = parsed["payload"].get("extra_json")
-
-                _append_event(
-                    document,
-                    step_code="realization_received_from_mom",
-                    status="error" if parsed["deleted"] else "success",
-                    message="Реализация получена из MOM",
-                    occurred_at=occurred_at,
-                )
-
-                self._link_realisation_to_tickets(
-                    db,
-                    document,
-                    parsed["pnrs"],
-                    occurred_at,
-                    received_status="error" if parsed["deleted"] else "success",
-                )
-
                 moved_file = self._move_file(source_file, self.settings.onec_realisations_target_dir)
-                moved_occurred_at = _file_created_at(moved_file)
-                self._touch_file_meta(document, moved_file)
-                _append_event(
-                    document,
-                    step_code="realization_copied_to_smb",
-                    status="success",
-                    message="Реализация перемещена в каталог 1C",
-                    occurred_at=moved_occurred_at,
-                )
-                if document.status != "error":
-                    document.current_step = "realization_copied_to_smb"
-                    document.status = "success"
-                    self._mark_realisation_copied_for_tickets(db, document, moved_occurred_at)
-                db.commit()
-                self._mark_file_processed(self.settings.onec_realisations_target_dir, moved_file)
+                logger.info("Realization file moved to 1C target: %s", moved_file)
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process realization file: %s", source_file)
@@ -943,8 +836,26 @@ class FilePipelineService:
                 ):
                     self._mark_file_processed(self.settings.onec_realisations_target_dir, file_path)
                     continue
-                parsed = self._parse_realisation_payload(file_path)
+                try:
+                    parsed = self._parse_realisation_payload(file_path)
+                except Exception:
+                    logger.warning("Unable to parse realization payload from %s", file_path, exc_info=True)
+                    self._mark_file_processed(self.settings.onec_realisations_target_dir, file_path)
+                    continue
                 occurred_at = parsed["occurred_at"] or _file_created_at(file_path)
+                has_matching_ticket = bool(
+                    parsed["pnrs"]
+                    and db.scalar(
+                        select(Document.id)
+                        .join(DocumentPayload, DocumentPayload.document_id == Document.id)
+                        .where(Document.doc_type == "ticket", DocumentPayload.pnr.in_(parsed["pnrs"]))
+                        .limit(1)
+                    )
+                )
+                if not has_matching_ticket:
+                    self._mark_file_processed(self.settings.onec_realisations_target_dir, file_path)
+                    continue
+
                 document = self._ensure_document(
                     db,
                     doc_type="realization",
@@ -1003,70 +914,6 @@ class FilePipelineService:
             except Exception:
                 db.rollback()
                 logger.exception("Failed to process existing realization in 1C target: %s", file_path)
-
-    def _process_existing_onec_realisation_results(self, db: Session) -> None:
-        result_folders = [
-            ("archive", self.settings.onec_realisations_archive_dir),
-            ("bad", self.settings.onec_realisations_bad_dir),
-            ("del_bad", self.settings.onec_realisations_del_bad_dir),
-            ("empty", self.settings.onec_realisations_empty_dir),
-        ]
-
-        for result_code, folder in result_folders:
-            for file_path in self._iter_xml_files(folder):
-                if not self._is_stable(file_path):
-                    continue
-                try:
-                    if self._is_document_archived(
-                        db,
-                        doc_type="realization",
-                        flow_group="tickets",
-                        source_system="mom",
-                        file_name=file_path.name,
-                    ):
-                        self._mark_file_processed(folder, file_path)
-                        continue
-                    parsed = self._parse_realisation_payload(file_path)
-                    occurred_at = _file_created_at(file_path)
-                    document = self._ensure_document(
-                        db,
-                        doc_type="realization",
-                        flow_group="tickets",
-                        source_system="mom",
-                        file_name=file_path.name,
-                    )
-                    self._touch_file_meta(document, file_path)
-                    if not document.occurred_at:
-                        document.occurred_at = parsed["occurred_at"] or occurred_at
-                    self._apply_realisation_payload(document, parsed, file_path.name)
-                    _append_event(
-                        document,
-                        step_code="realization_received_from_mom",
-                        status="success",
-                        message="Realization received from MOM",
-                        occurred_at=document.occurred_at or occurred_at,
-                    )
-
-                    result = self._apply_realisation_result(document, occurred_at=occurred_at, result_code=result_code)
-                    self._link_realisation_to_tickets(
-                        db,
-                        document,
-                        parsed["pnrs"],
-                        document.occurred_at or occurred_at,
-                    )
-                    self._mark_realisation_copied_for_tickets(
-                        db,
-                        document,
-                        occurred_at,
-                        status=result["step_status"] or "success",
-                        ticket_error_message=result["error_message"],
-                        result_code=result_code,
-                    )
-                    db.commit()
-                    self._mark_file_processed(folder, file_path)
-                except Exception:
-                    db.rollback()
-                    logger.exception("Failed to process realization result-file: %s", file_path)
 
     def _process_payments(self, db: Session) -> None:
         for source_file in self._iter_xml_files(self.settings.onec_payments_source_dir):
@@ -1383,9 +1230,8 @@ class FilePipelineService:
         with SessionLocal() as db:
             self._process_ticket_inbox(db)
             self._process_ticket_results(db)
-            self._process_existing_onec_realisations(db)
             self._process_realisations(db)
-            self._process_existing_onec_realisation_results(db)
+            self._process_existing_onec_realisations(db)
             self._process_payments(db)
             self._process_payment_results(db)
             try:

@@ -256,7 +256,6 @@ def build_ticket_case_listing(
     ticket_by_id = {document.id: document for document in documents if document.doc_type == "ticket"}
     realization_by_id = {document.id: document for document in documents if document.doc_type == "realization"}
 
-    linked_realization_ids: set[str] = set()
     all_ticket_cases: list[dict[str, object]] = []
     for ticket in ticket_by_id.values():
         related_realizations = []
@@ -266,7 +265,6 @@ def build_ticket_case_listing(
             realization = realization_by_id.get(link.to_document_id)
             if realization:
                 related_realizations.append(realization)
-                linked_realization_ids.add(realization.id)
 
         related_realizations.sort(key=lambda item: item.occurred_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         group_documents = [ticket, *related_realizations]
@@ -286,27 +284,10 @@ def build_ticket_case_listing(
 
     all_ticket_cases.sort(key=lambda item: item["last_activity_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
 
-    all_orphan_realizations: list[dict[str, object]] = []
-    for realization in realization_by_id.values():
-        if realization.id in linked_realization_ids:
-            continue
-        state = _get_user_state(realization, user.id)
-        all_orphan_realizations.append(
-            {
-                "realization": realization,
-                "state": state,
-            }
-        )
-    all_orphan_realizations.sort(key=lambda item: _document_sort_time(item["realization"]), reverse=True)
-
     counters = Counter()
     for case in all_ticket_cases:
         counters[case["group_status"]] += 1
         if case["ticket_state"] and case["ticket_state"].is_hidden:
-            counters["hidden"] += 1
-    for orphan in all_orphan_realizations:
-        counters[orphan["realization"].status] += 1
-        if orphan["state"] and orphan["state"].is_hidden:
             counters["hidden"] += 1
 
     filtered_entries: list[dict[str, object]] = []
@@ -329,36 +310,17 @@ def build_ticket_case_listing(
             }
         )
 
-    for orphan in all_orphan_realizations:
-        realization = orphan["realization"]
-        if not _matches_status_filter(realization.status, status_filter):
-            continue
-        if not _matches_view(realization.status, orphan["state"], view):
-            continue
-        if not _matches_date_range([realization], date_from, date_to):
-            continue
-        if search and not _document_matches_search(realization, search):
-            continue
-        filtered_entries.append(
-            {
-                "entry_type": "orphan_realization",
-                "entry_id": realization.id,
-                "sort_time": _document_sort_time(realization),
-                "orphan_realization": orphan,
-            }
-        )
-
     filtered_entries.sort(key=lambda item: item["sort_time"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     page_entries = filtered_entries[offset : offset + limit]
     ticket_cases = [item["ticket_case"] for item in page_entries if item["entry_type"] == "ticket_case"]
-    orphan_realizations = [item["orphan_realization"] for item in page_entries if item["entry_type"] == "orphan_realization"]
+    orphan_realizations: list[dict[str, object]] = []
 
     return {
         "entries": page_entries,
         "ticket_cases": ticket_cases,
         "orphan_realizations": orphan_realizations,
         "counters": counters,
-        "total_count": len(all_ticket_cases) + len(all_orphan_realizations),
+        "total_count": len(all_ticket_cases),
         "filtered_count": len(filtered_entries),
         "offset": offset,
         "limit": limit,

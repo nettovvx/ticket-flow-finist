@@ -104,16 +104,12 @@ function HeaderBlock({ title, subtitle, right }) {
 
 function deriveTicketGroupsFromEntries(entries) {
   const ticketCases = [];
-  const orphanRealizations = [];
   for (const entry of entries) {
     if (entry.entry_type === "ticket_case" && entry.ticket_case) {
       ticketCases.push(entry.ticket_case);
     }
-    if (entry.entry_type === "orphan_realization" && entry.orphan_realization) {
-      orphanRealizations.push(entry.orphan_realization);
-    }
   }
-  return { ticketCases, orphanRealizations };
+  return { ticketCases, orphanRealizations: [] };
 }
 
 function mergeTicketListing(previous, next) {
@@ -191,6 +187,14 @@ function TicketCards({ listing, onOpenDocument }) {
                 }
               />
 
+              <div className="row-actions">
+                <small>
+                  {caseItem.realizations.length > 0
+                    ? `Связанных реализаций: ${caseItem.realizations.length}`
+                    : "Связанная реализация пока не найдена"}
+                </small>
+              </div>
+
               <div className="steps">
                 {caseItem.steps.map((step) => (
                   <div key={step.code} className={`step status-${step.status}`}>
@@ -210,25 +214,6 @@ function TicketCards({ listing, onOpenDocument }) {
 
               <div className="row-actions">
                 <small>Последняя активность: {formatDate(caseItem.last_activity_at)}</small>
-              </div>
-            </article>
-          );
-        }
-
-        if (entry.entry_type === "orphan_realization" && entry.orphan_realization) {
-          const item = entry.orphan_realization;
-          return (
-            <article key={entry.entry_id} className="card orphan">
-              <HeaderBlock
-                title={item.realization.payload?.mom_number || item.realization.title || item.realization.file_name}
-                subtitle={item.realization.payload?.client_name || "Контрагент не найден"}
-                right={<StatusPill status={item.realization.status} />}
-              />
-              <div className="row-actions">
-                <small>PNR: {item.realization.payload?.pnr || "—"}</small>
-                <button className="ghost" onClick={() => onOpenDocument(item.realization.id)} type="button">
-                  Открыть
-                </button>
               </div>
             </article>
           );
