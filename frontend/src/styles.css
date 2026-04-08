@@ -120,7 +120,7 @@ select {
 .app-shell {
   width: min(1400px, 100%);
   margin: 0 auto;
-  padding: 22px;
+  padding: 22px 22px 54px;
   display: grid;
   gap: 16px;
   animation: page-in 0.6s cubic-bezier(0.2, 0.72, 0.2, 1) both;
@@ -153,15 +153,22 @@ select {
   color: var(--muted);
 }
 
-.developers-line {
+.footer-credits {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 8px;
   margin: 0;
-  font-size: 0.93rem;
-  color: #4f5f7e;
-}
-
-.developers-line strong {
-  color: #243552;
-  font-weight: 800;
+  text-align: center;
+  font-size: 0.66rem;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  color: rgba(52, 65, 91, 0.58);
+  text-transform: none;
+  pointer-events: none;
+  user-select: none;
+  z-index: 4;
 }
 
 .topbar-actions {
@@ -238,7 +245,7 @@ select {
 }
 
 .overview-modal {
-  width: min(1240px, calc(100vw - 40px));
+  width: min(1460px, calc(100vw - 24px));
   max-height: min(88vh, 920px);
   overflow: hidden;
   display: grid;
@@ -275,7 +282,7 @@ select {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
 }
@@ -292,7 +299,8 @@ select {
 
 .overview-table-wrap {
   max-height: min(44vh, 460px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
 }
@@ -300,7 +308,6 @@ select {
 .overview-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 580px;
   table-layout: fixed;
 }
 
@@ -335,27 +342,27 @@ select {
 }
 
 .overview-table .col-folder-name {
-  width: 28%;
+  width: 31%;
 }
 
 .overview-table .col-folder-path {
-  width: 42%;
+  width: 41%;
 }
 
 .overview-table .col-folder-count {
-  width: 12%;
+  width: 11%;
 }
 
 .overview-table .col-folder-state {
-  width: 18%;
+  width: 17%;
 }
 
 .overview-table .col-metric-name {
-  width: 64%;
+  width: 68%;
 }
 
 .overview-table .col-metric-num {
-  width: 12%;
+  width: 10.66%;
 }
 
 .toolbar {
@@ -965,6 +972,11 @@ select {
     max-height: calc(100vh - 24px);
     border-radius: 16px;
     padding: 14px;
+  }
+
+  .footer-credits {
+    bottom: 6px;
+    font-size: 0.62rem;
   }
 
   .overview-modal,
