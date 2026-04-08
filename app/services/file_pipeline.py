@@ -628,6 +628,10 @@ class FilePipelineService:
         status: str = "success",
         ticket_error_message: str | None = None,
     ) -> None:
+        # SessionLocal is configured with autoflush=False. We may have just created
+        # ticket_to_realization links in the same transaction, so force flush before
+        # selecting from DocumentLink to avoid missing freshly added links.
+        db.flush()
         ticket_ids = db.scalars(
             select(DocumentLink.from_document_id).where(
                 DocumentLink.to_document_id == realisation.id,
@@ -671,6 +675,8 @@ class FilePipelineService:
         status: str,
         message: str,
     ) -> None:
+        # See note above in _mark_realisation_copied_for_tickets.
+        db.flush()
         ticket_ids = db.scalars(
             select(DocumentLink.from_document_id).where(
                 DocumentLink.to_document_id == realisation.id,

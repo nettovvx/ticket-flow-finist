@@ -24,6 +24,14 @@ function renderModal(node) {
   return createPortal(node, document.body);
 }
 
+function FooterCredits() {
+  return (
+    <footer className="footer-credits" aria-label="Копирайт разработчиков">
+      HighTek Innovation · Nettovvx Studio
+    </footer>
+  );
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "include",
@@ -1077,75 +1085,76 @@ export default function App() {
 
   if (!user) {
     return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <div className="brand">TF</div>
-          <h1>TicketFlow</h1>
-          <p>Операционная панель по цепочке ticket → realization → payment.</p>
-          <form onSubmit={onLogin} className="auth-form">
-            <label>
-              Логин
-              <input value={login.username} onChange={(event) => setLogin((prev) => ({ ...prev, username: event.target.value }))} required />
-            </label>
-            <label>
-              Пароль
-              <input
-                type="password"
-                value={login.password}
-                onChange={(event) => setLogin((prev) => ({ ...prev, password: event.target.value }))}
-                required
-              />
-            </label>
-            <button type="submit">Войти</button>
-            {authError && <div className="error-box">{authError}</div>}
-          </form>
-        </section>
-      </main>
+      <>
+        <main className="auth-page">
+          <section className="auth-card">
+            <div className="brand">TF</div>
+            <h1>TicketFlow</h1>
+            <p>Операционная панель по цепочке ticket → realization → payment.</p>
+            <form onSubmit={onLogin} className="auth-form">
+              <label>
+                Логин
+                <input value={login.username} onChange={(event) => setLogin((prev) => ({ ...prev, username: event.target.value }))} required />
+              </label>
+              <label>
+                Пароль
+                <input
+                  type="password"
+                  value={login.password}
+                  onChange={(event) => setLogin((prev) => ({ ...prev, password: event.target.value }))}
+                  required
+                />
+              </label>
+              <button type="submit">Войти</button>
+              {authError && <div className="error-box">{authError}</div>}
+            </form>
+          </section>
+        </main>
+        <FooterCredits />
+      </>
     );
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="topbar-brand">
-          <h1>TicketFlow</h1>
-          <p>Система мониторинга документного обмена</p>
-          <p className="developers-line">
-            Разработчики: <strong>HighTek Innovation</strong> и <strong>Nettovvx Studio</strong>
-          </p>
-        </div>
-        <div className="topbar-actions">
-          <span className="user-chip">
-            {user.username} · {user.role}
-          </span>
-          <button
-            className="ghost"
-            onClick={() => {
-              setOverviewOpen(true);
-              fetchOverview();
-            }}
-            type="button"
-          >
-            Статистика
-          </button>
-          {user.role === "admin" && (
+    <>
+      <main className="app-shell">
+        <header className="topbar">
+          <div className="topbar-brand">
+            <h1>TicketFlow</h1>
+            <p>Система мониторинга документного обмена</p>
+          </div>
+          <div className="topbar-actions">
+            <span className="user-chip">
+              {user.username} · {user.role}
+            </span>
             <button
-              className="ghost icon-button"
+              className="ghost"
               onClick={() => {
-                setSettingsTab("accounts");
-                setSettingsOpen(true);
+                setOverviewOpen(true);
+                fetchOverview();
               }}
               type="button"
             >
-              <img src={iconSettings} alt="Настройки" className="icon-inline" />
-              <span>Настройки</span>
+              Статистика
             </button>
-          )}
-          <button className="ghost" onClick={onLogout} type="button">
-            Выйти
-          </button>
-        </div>
-      </header>
+            {user.role === "admin" && (
+              <button
+                className="ghost icon-button"
+                onClick={() => {
+                  setSettingsTab("accounts");
+                  setSettingsOpen(true);
+                }}
+                type="button"
+              >
+                <img src={iconSettings} alt="Настройки" className="icon-inline" />
+                <span>Настройки</span>
+              </button>
+            )}
+            <button className="ghost" onClick={onLogout} type="button">
+              Выйти
+            </button>
+          </div>
+        </header>
 
       <section className="stats-row">
         <article>
@@ -1225,29 +1234,38 @@ export default function App() {
         {!listing?.has_more && filteredCount > 0 && <span>Все результаты загружены</span>}
       </div>
 
-      <DetailModal user={user} detail={detail} loading={detailLoading} onClose={() => setDetail(null)} onHide={hideDocument} onUnhide={unhideDocument} />
+        <DetailModal
+          user={user}
+          detail={detail}
+          loading={detailLoading}
+          onClose={() => setDetail(null)}
+          onHide={hideDocument}
+          onUnhide={unhideDocument}
+        />
 
-      <SettingsModal
-        user={user}
-        open={settingsOpen}
-        activeTab={settingsTab}
-        setActiveTab={setSettingsTab}
-        users={adminUsers}
-        loading={usersLoading}
-        message={adminMessage}
-        onClose={() => setSettingsOpen(false)}
-        onCreate={createUser}
-        onRoleChange={changeUserRole}
-        onDelete={deleteUser}
-      />
+        <SettingsModal
+          user={user}
+          open={settingsOpen}
+          activeTab={settingsTab}
+          setActiveTab={setSettingsTab}
+          users={adminUsers}
+          loading={usersLoading}
+          message={adminMessage}
+          onClose={() => setSettingsOpen(false)}
+          onCreate={createUser}
+          onRoleChange={changeUserRole}
+          onDelete={deleteUser}
+        />
 
-      <OperationsOverviewModal
-        open={overviewOpen}
-        overview={overview}
-        loading={overviewLoading}
-        onClose={() => setOverviewOpen(false)}
-        onRefresh={() => fetchOverview()}
-      />
-    </main>
+        <OperationsOverviewModal
+          open={overviewOpen}
+          overview={overview}
+          loading={overviewLoading}
+          onClose={() => setOverviewOpen(false)}
+          onRefresh={() => fetchOverview()}
+        />
+      </main>
+      <FooterCredits />
+    </>
   );
 }
