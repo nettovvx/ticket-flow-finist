@@ -110,9 +110,8 @@ def _hash_file(path: Path) -> str:
 
 
 def _file_created_at(path: Path) -> datetime:
-    stat = path.stat()
-    timestamp = getattr(stat, "st_birthtime", None) or stat.st_mtime
-    return _clamp_future_datetime(datetime.fromtimestamp(timestamp, tz=timezone.utc)) or _utc_now()
+    _ = path
+    return _utc_now()
 
 
 def _build_unique_destination(path: Path) -> Path:
@@ -905,7 +904,7 @@ class FilePipelineService:
                 document: Document | None = None
                 moved_occurred_at: datetime | None = None
                 if parsed and has_matching_ticket:
-                    occurred_at = parsed["occurred_at"] or _file_created_at(source_file)
+                    occurred_at = _utc_now()
                     document = self._ensure_document(
                         db,
                         doc_type="realization",
@@ -988,7 +987,7 @@ class FilePipelineService:
                     logger.warning("Unable to parse realization payload from %s", file_path, exc_info=True)
                     self._mark_file_processed(self.settings.onec_realisations_target_dir, file_path)
                     continue
-                occurred_at = parsed["occurred_at"] or _file_created_at(file_path)
+                occurred_at = _utc_now()
                 has_matching_ticket = self._has_matching_ticket_for_pnrs(db, parsed["pnrs"])
                 if not has_matching_ticket:
                     self._mark_file_processed(self.settings.onec_realisations_target_dir, file_path)
@@ -1093,7 +1092,7 @@ class FilePipelineService:
                             self._mark_file_processed(folder, file_path)
                             continue
 
-                        base_occurred_at = parsed["occurred_at"] or occurred_at
+                        base_occurred_at = _utc_now()
                         document = self._ensure_document(
                             db,
                             doc_type="realization",
