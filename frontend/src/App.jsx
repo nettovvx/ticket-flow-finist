@@ -213,8 +213,8 @@ function HeaderBlock({ title, subtitle, right }) {
   );
 }
 
-function OperationsOverview({ overview, loading }) {
-  if (!overview && !loading) {
+function OperationsOverviewModal({ open, overview, loading, onClose, onRefresh }) {
+  if (!open) {
     return null;
   }
 
@@ -223,57 +223,108 @@ function OperationsOverview({ overview, loading }) {
   const totals = overview?.daily_totals ?? { success: 0, error: 0, events: 0 };
 
   return (
-    <section className="ops-layout">
-      <article className="ops-panel">
-        <HeaderBlock title="XML в папках" subtitle={`Всего XML сейчас: ${overview?.folder_xml_total ?? 0}`} />
-        {loading && !overview && <p className="loading">Собираем метрики...</p>}
-        <div className="ops-folders">
-          {folders.map((folder) => (
-            <div key={folder.key} className="ops-folder">
-              <div className="ops-folder-top">
-                <strong>{folder.label}</strong>
-                <span className="count-badge">{folder.xml_count}</span>
-              </div>
-              <small>{folder.path}</small>
-              {!folder.exists && (
-                <small className="ops-folder-warning">{folder.error ? `Ошибка: ${folder.error}` : "Папка недоступна"}</small>
-              )}
-            </div>
-          ))}
-        </div>
-      </article>
-
-      <article className="ops-panel">
-        <HeaderBlock title="Статистика за день" subtitle={`Обновлено: ${formatDate(overview?.generated_at)}`} />
-        <div className="ops-totals">
+    <div className="modal-backdrop overview-backdrop" onClick={onClose}>
+      <section className="modal-card overview-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-top">
           <div>
-            <small>Успешных шагов</small>
+            <h2>Статистика обработки</h2>
+            <p>Текущее состояние XML-очередей и обработка за день</p>
+          </div>
+          <div className="row-actions">
+            <button className="ghost" type="button" onClick={onRefresh}>
+              Обновить
+            </button>
+            <button className="ghost icon-button" type="button" onClick={onClose}>
+              <img src={iconClose} alt="Закрыть" className="icon-inline" />
+              <span>Закрыть</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="overview-kpis">
+          <div>
+            <small>XML сейчас в папках</small>
+            <strong>{overview?.folder_xml_total ?? 0}</strong>
+          </div>
+          <div>
+            <small>Успешных шагов за день</small>
             <strong>{totals.success ?? 0}</strong>
           </div>
           <div>
-            <small>Ошибок</small>
+            <small>Ошибок за день</small>
             <strong>{totals.error ?? 0}</strong>
           </div>
           <div>
-            <small>Всего событий</small>
+            <small>Событий за день</small>
             <strong>{totals.events ?? 0}</strong>
           </div>
         </div>
 
-        <div className="ops-metrics">
-          {metrics.map((metric) => (
-            <div key={metric.code} className="ops-metric">
-              <span>{metric.label}</span>
-              <div className="ops-metric-values">
-                <span className="pill status-success">OK: {metric.success}</span>
-                <span className="pill status-error">ERR: {metric.error}</span>
-                <span className="ops-total">Всего: {metric.total}</span>
-              </div>
+        {loading && !overview && <p className="loading">Собираем метрики...</p>}
+
+        <div className="overview-grid">
+          <article className="overview-table-panel">
+            <HeaderBlock title="Очереди XML по папкам" subtitle={`Папок в мониторинге: ${folders.length}`} />
+            <div className="overview-table-wrap">
+              <table className="overview-table">
+                <thead>
+                  <tr>
+                    <th>Папка</th>
+                    <th>Путь</th>
+                    <th>XML</th>
+                    <th>Статус</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {folders.map((folder) => (
+                    <tr key={folder.key}>
+                      <td>{folder.label}</td>
+                      <td className="path">{folder.path}</td>
+                      <td>
+                        <span className="count-badge">{folder.xml_count}</span>
+                      </td>
+                      <td>
+                        {folder.exists ? (
+                          <span className="pill status-success">доступна</span>
+                        ) : (
+                          <span className="pill status-error">{folder.error ? "ошибка доступа" : "не найдена"}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
+          </article>
+
+          <article className="overview-table-panel">
+            <HeaderBlock title="Обработка за день" subtitle={`Обновлено: ${formatDate(overview?.generated_at)}`} />
+            <div className="overview-table-wrap">
+              <table className="overview-table">
+                <thead>
+                  <tr>
+                    <th>Этап</th>
+                    <th>OK</th>
+                    <th>ERR</th>
+                    <th>Всего</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.map((metric) => (
+                    <tr key={metric.code}>
+                      <td>{metric.label}</td>
+                      <td>{metric.success}</td>
+                      <td>{metric.error}</td>
+                      <td>{metric.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
         </div>
-      </article>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -719,6 +770,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [overview, setOverview] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -750,8 +802,14 @@ export default function App() {
     }
     setDetail(null);
     fetchMonitorListing({ offset: 0, limit: PAGE_SIZE });
-    fetchOverview();
   }, [user, activeTab, filters]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    fetchOverview();
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -760,10 +818,12 @@ export default function App() {
     const intervalId = window.setInterval(() => {
       const currentLimit = Math.max(getLoadedCount(listing, activeTab), PAGE_SIZE);
       fetchMonitorListing({ offset: 0, limit: currentLimit, silent: true });
-      fetchOverview({ silent: true });
+      if (overviewOpen) {
+        fetchOverview({ silent: true });
+      }
     }, AUTO_REFRESH_MS);
     return () => window.clearInterval(intervalId);
-  }, [user, activeTab, filters, listing]);
+  }, [user, activeTab, filters, listing, overviewOpen]);
 
   useEffect(() => {
     if (!user || !loadMoreRef.current) {
@@ -902,6 +962,7 @@ export default function App() {
     setUser(null);
     setListing(null);
     setDetail(null);
+    setOverviewOpen(false);
     setSettingsOpen(false);
   }
 
@@ -1029,6 +1090,16 @@ export default function App() {
           <span className="user-chip">
             {user.username} · {user.role}
           </span>
+          <button
+            className="ghost"
+            onClick={() => {
+              setOverviewOpen(true);
+              fetchOverview();
+            }}
+            type="button"
+          >
+            Статистика
+          </button>
           {user.role === "admin" && (
             <button
               className="ghost icon-button"
@@ -1066,8 +1137,6 @@ export default function App() {
           <strong>{counters.hidden ?? 0}</strong>
         </article>
       </section>
-
-      <OperationsOverview overview={overview} loading={overviewLoading} />
 
       <section className="toolbar">
         <div className="tabs">
@@ -1142,6 +1211,14 @@ export default function App() {
         onCreate={createUser}
         onRoleChange={changeUserRole}
         onDelete={deleteUser}
+      />
+
+      <OperationsOverviewModal
+        open={overviewOpen}
+        overview={overview}
+        loading={overviewLoading}
+        onClose={() => setOverviewOpen(false)}
+        onRefresh={() => fetchOverview()}
       />
     </main>
   );
