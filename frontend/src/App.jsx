@@ -17,12 +17,6 @@ const INITIAL_FILTERS = {
   date_to: "",
 };
 
-const HEADER_LOGOS = [
-  { src: "/logo/hightek.png", alt: "Hightek", className: "logo-hightek" },
-  { src: "/logo/nettovvx-studio.png", alt: "Nettovvx Studio", className: "logo-nettovvx" },
-  { src: "/logo/finist.png", alt: "Finist", className: "logo-finist" },
-];
-
 function renderModal(node) {
   if (typeof document === "undefined") {
     return null;
@@ -1114,17 +1108,11 @@ export default function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-brand">
-          <div className="brand-inline">
-            <h1>TicketFlow</h1>
-            <div className="logo-strip" aria-label="Логотипы партнеров">
-              {HEADER_LOGOS.map((logo) => (
-                <div key={logo.alt} className={`logo-badge ${logo.className}`}>
-                  <img src={logo.src} alt={logo.alt} />
-                </div>
-              ))}
-            </div>
-          </div>
+          <h1>TicketFlow</h1>
           <p>Система мониторинга документного обмена</p>
+          <p className="developers-line">
+            Разработчики: <strong>HighTek Innovation</strong> и <strong>Nettovvx Studio</strong>
+          </p>
         </div>
         <div className="topbar-actions">
           <span className="user-chip">
