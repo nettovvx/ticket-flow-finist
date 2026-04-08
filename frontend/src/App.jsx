@@ -783,7 +783,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
 
-  const [login, setLogin] = useState({ username: "admin", password: "admin123" });
+  const [login, setLogin] = useState({ username: "", password: "" });
   const [activeTab, setActiveTab] = useState("tickets");
   const [filters, setFilters] = useState(INITIAL_FILTERS);
 

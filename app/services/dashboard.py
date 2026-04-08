@@ -211,9 +211,22 @@ def _ticket_case_steps(ticket: Document) -> list[dict[str, object]]:
     return _with_step_deltas(steps)
 
 
-def _group_status(ticket: Document, realizations: list[Document]) -> str:
-    statuses = [ticket.status, *[realization.status for realization in realizations]]
-    return _combine_statuses(statuses)
+def _group_status_from_steps(
+    steps: list[dict[str, object]],
+    ticket: Document,
+    realizations: list[Document],
+) -> str:
+    step_statuses = [str(step.get("status") or "pending") for step in steps]
+
+    # Explicit error markers from documents should still surface as errors.
+    doc_statuses = [ticket.status, *[realization.status for realization in realizations]]
+    if "error" in doc_statuses or "error" in step_statuses:
+        return "error"
+
+    if step_statuses and all(status == "success" for status in step_statuses):
+        return "success"
+
+    return "in_progress"
 
 
 def _matches_date_range(documents: list[Document], date_from: str | None, date_to: str | None) -> bool:
@@ -297,7 +310,8 @@ def build_ticket_case_listing(
 
         related_realizations.sort(key=lambda item: item.occurred_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         group_documents = [ticket, *related_realizations]
-        group_status = _group_status(ticket, related_realizations)
+        steps = _ticket_case_steps(ticket)
+        group_status = _group_status_from_steps(steps, ticket, related_realizations)
         state = _get_user_state(ticket, user.id)
 
         all_ticket_cases.append(
@@ -306,7 +320,7 @@ def build_ticket_case_listing(
                 "ticket_state": state,
                 "realizations": related_realizations,
                 "group_status": group_status,
-                "steps": _ticket_case_steps(ticket),
+                "steps": steps,
                 "last_activity_at": max((_document_sort_time(document) for document in group_documents), default=_document_sort_time(ticket)),
             }
         )
