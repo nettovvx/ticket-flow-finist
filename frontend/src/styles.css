@@ -141,13 +141,13 @@ select {
 
 .topbar-brand {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .brand-inline {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   flex-wrap: wrap;
 }
 
@@ -158,28 +158,56 @@ select {
 .logo-strip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: nowrap;
+  padding: 4px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(207, 217, 236, 0.55), rgba(199, 212, 236, 0.24));
+  border: 1px solid #d3dcee;
 }
 
 .logo-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 118px;
-  height: 40px;
-  padding: 6px 10px;
-  border: 1px solid #d4dcec;
-  border-radius: 16px;
-  background: #e8edf8;
+  width: 132px;
+  height: 48px;
+  padding: 8px 12px;
+  border: 1px solid #c1cde5;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #d2daec, #c3d0e8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    0 6px 18px rgba(24, 46, 88, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 
 .logo-badge img {
   width: auto;
   max-width: 100%;
-  max-height: 22px;
+  max-height: 24px;
   object-fit: contain;
   display: block;
+  filter: saturate(0.96) contrast(1.02);
+}
+
+.logo-badge.logo-nettovvx img {
+  max-height: 30px;
+}
+
+.logo-badge.logo-hightek img {
+  max-height: 25px;
+}
+
+.logo-badge.logo-finist img {
+  max-height: 27px;
+}
+
+.logo-badge:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 10px 24px rgba(17, 38, 79, 0.16);
 }
 
 .topbar h1 {
@@ -265,11 +293,11 @@ select {
 }
 
 .overview-modal {
-  width: min(1260px, 100%);
-  max-height: calc(100vh - 48px);
+  width: min(1240px, calc(100vw - 40px));
+  max-height: min(88vh, 920px);
   overflow: hidden;
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .overview-modal .modal-top p {
@@ -280,8 +308,7 @@ select {
 .overview-kpis {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 10px;
 }
 
 .overview-kpis > div {
@@ -303,7 +330,7 @@ select {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
 }
@@ -319,7 +346,7 @@ select {
 }
 
 .overview-table-wrap {
-  max-height: 52vh;
+  max-height: min(44vh, 460px);
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -770,15 +797,17 @@ select {
   inset: 0;
   background: rgba(12, 18, 30, 0.44);
   backdrop-filter: blur(2px);
-  display: grid;
-  place-items: center;
-  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(14px, 3vh, 26px);
+  overflow: auto;
   z-index: 100;
 }
 
 .modal-card {
-  width: min(980px, 100%);
-  max-height: calc(100vh - 40px);
+  width: min(980px, calc(100vw - 40px));
+  max-height: min(86vh, 900px);
   overflow: auto;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -860,7 +889,8 @@ select {
 }
 
 .settings-modal {
-  width: min(1120px, 100%);
+  width: min(1080px, calc(100vw - 40px));
+  max-height: min(86vh, 900px);
 }
 
 .settings-tabs {
@@ -981,11 +1011,32 @@ select {
     flex-wrap: wrap;
   }
 
+  .logo-badge {
+    width: 124px;
+  }
+
   .inline-form {
     grid-template-columns: 1fr;
   }
 
   .user-row.expanded {
     grid-template-columns: 1fr;
+  }
+
+  .modal-card {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .overview-modal,
+  .settings-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
+  .overview-table-wrap {
+    max-height: 42vh;
   }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import iconAccounts from "./assets/icons/accounts.svg";
 import iconArchive from "./assets/icons/archive.svg";
 import iconClose from "./assets/icons/close.svg";
@@ -17,10 +18,17 @@ const INITIAL_FILTERS = {
 };
 
 const HEADER_LOGOS = [
-  { src: "/logo/hightek.png", alt: "Hightek" },
-  { src: "/logo/nettovvx-studio.png", alt: "Nettovvx Studio" },
-  { src: "/logo/finist.png", alt: "Finist" },
+  { src: "/logo/hightek.png", alt: "Hightek", className: "logo-hightek" },
+  { src: "/logo/nettovvx-studio.png", alt: "Nettovvx Studio", className: "logo-nettovvx" },
+  { src: "/logo/finist.png", alt: "Finist", className: "logo-finist" },
 ];
+
+function renderModal(node) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  return createPortal(node, document.body);
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -222,9 +230,9 @@ function OperationsOverviewModal({ open, overview, loading, onClose, onRefresh }
   const metrics = Array.isArray(overview?.daily_metrics) ? overview.daily_metrics : [];
   const totals = overview?.daily_totals ?? { success: 0, error: 0, events: 0 };
 
-  return (
+  return renderModal(
     <div className="modal-backdrop overview-backdrop" onClick={onClose}>
-      <section className="modal-card overview-modal" onClick={(event) => event.stopPropagation()}>
+      <section className="modal-card overview-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-top">
           <div>
             <h2>Статистика обработки</h2>
@@ -338,7 +346,7 @@ function OperationsOverviewModal({ open, overview, loading, onClose, onRefresh }
           </article>
         </div>
       </section>
-    </div>
+    </div>,
   );
 }
 
@@ -554,9 +562,9 @@ function DetailModal({ user, detail, loading, onClose, onHide, onUnhide }) {
     return null;
   }
 
-  return (
+  return renderModal(
     <div className="modal-backdrop" onClick={onClose}>
-      <section className="modal-card" onClick={(event) => event.stopPropagation()}>
+      <section className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-top">
           <h2>Детализация документа</h2>
           <button className="ghost icon-button" type="button" onClick={onClose}>
@@ -613,7 +621,7 @@ function DetailModal({ user, detail, loading, onClose, onHide, onUnhide }) {
           </>
         )}
       </section>
-    </div>
+    </div>,
   );
 }
 
@@ -716,9 +724,9 @@ function SettingsModal({
 
   const tabs = [{ id: "accounts", label: "Управление учетными записями", icon: iconAccounts }];
 
-  return (
+  return renderModal(
     <div className="modal-backdrop settings-backdrop" onClick={onClose}>
-      <section className="modal-card settings-modal" onClick={(event) => event.stopPropagation()}>
+      <section className="modal-card settings-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-top">
           <div className="modal-heading-icon">
             <img src={iconSettings} alt="Настройки" className="icon-inline" />
@@ -764,7 +772,7 @@ function SettingsModal({
           )}
         </div>
       </section>
-    </div>
+    </div>,
   );
 }
 
@@ -802,6 +810,7 @@ export default function App() {
   const counters = useMemo(() => listing?.counters ?? {}, [listing]);
   const filteredCount = listing?.filtered_count ?? 0;
   const totalCount = listing?.total_count ?? 0;
+  const modalOpen = overviewOpen || settingsOpen || detailLoading || Boolean(detail);
 
   useEffect(() => {
     api("/api/auth/me")
@@ -879,7 +888,7 @@ export default function App() {
   }, [user, settingsOpen, settingsTab]);
 
   useEffect(() => {
-    if (!overviewOpen) {
+    if (!modalOpen) {
       document.body.style.overflow = "";
       document.body.style.paddingRight = "";
       return;
@@ -893,7 +902,7 @@ export default function App() {
       document.body.style.overflow = "";
       document.body.style.paddingRight = "";
     };
-  }, [overviewOpen]);
+  }, [modalOpen]);
 
   async function fetchMonitorListing({ offset = 0, limit = PAGE_SIZE, append = false, silent = false } = {}) {
     if (!user) {
@@ -1109,7 +1118,7 @@ export default function App() {
             <h1>TicketFlow</h1>
             <div className="logo-strip" aria-label="Логотипы партнеров">
               {HEADER_LOGOS.map((logo) => (
-                <div key={logo.alt} className="logo-badge">
+                <div key={logo.alt} className={`logo-badge ${logo.className}`}>
                   <img src={logo.src} alt={logo.alt} />
                 </div>
               ))}
