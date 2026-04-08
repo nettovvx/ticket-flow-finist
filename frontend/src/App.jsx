@@ -17,9 +17,9 @@ const INITIAL_FILTERS = {
 };
 
 const HEADER_LOGOS = [
-  { src: "/logo/hightek.png", alt: "Hightek", caption: "hightek" },
-  { src: "/logo/nettovvx-studio.png", alt: "Nettovvx Studio", caption: "nettovvx-studio" },
-  { src: "/logo/finist.png", alt: "Finist", caption: "finist" },
+  { src: "/logo/hightek.png", alt: "Hightek" },
+  { src: "/logo/nettovvx-studio.png", alt: "Nettovvx Studio" },
+  { src: "/logo/finist.png", alt: "Finist" },
 ];
 
 async function api(path, options = {}) {
@@ -815,18 +815,17 @@ export default function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-brand">
-          <div className="logo-strip">
-            {HEADER_LOGOS.map((logo) => (
-              <div key={logo.alt} className="logo-badge">
-                <img src={logo.src} alt={logo.alt} />
-                <span>{logo.caption}</span>
-              </div>
-            ))}
-          </div>
-          <div>
+          <div className="brand-inline">
             <h1>TicketFlow</h1>
-            <p>Система мониторинга документного обмена</p>
+            <div className="logo-strip" aria-label="Логотипы партнеров">
+              {HEADER_LOGOS.map((logo) => (
+                <div key={logo.alt} className="logo-badge">
+                  <img src={logo.src} alt={logo.alt} />
+                </div>
+              ))}
+            </div>
           </div>
+          <p>Система мониторинга документного обмена</p>
         </div>
         <div className="topbar-actions">
           <span className="user-chip">
