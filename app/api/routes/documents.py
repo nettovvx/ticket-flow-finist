@@ -10,13 +10,14 @@ from app.models.audit import AuditLog
 from app.models.document import Document, DocumentUserState
 from app.models.user import User
 from app.schemas.api import (
+    ArchiveListingResponse,
     DocumentDetailResponse,
     DocumentsListingResponse,
     HideDocumentRequest,
     TicketsListingResponse,
 )
-from app.services.dashboard import build_document_listing, build_ticket_case_listing, load_document_with_context
-from app.services.serializers import serialize_document_detail, serialize_documents_listing, serialize_ticket_listing
+from app.services.dashboard import build_archived_document_listing, build_document_listing, build_ticket_case_listing, load_document_with_context
+from app.services.serializers import serialize_archived_documents_listing, serialize_document_detail, serialize_documents_listing, serialize_ticket_listing
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -72,6 +73,33 @@ def payments_listing(
         offset=offset,
     )
     return DocumentsListingResponse.model_validate(serialize_documents_listing(listing))
+
+
+@router.get("/archive", response_model=ArchiveListingResponse)
+def archive_listing(
+    q: str | None = Query(default=None),
+    view: str = Query(default="all"),
+    status_filter: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    flow_group: str | None = Query(default=None, pattern=r"^(tickets|payments)$"),
+    limit: int = Query(default=50, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> ArchiveListingResponse:
+    listing = build_archived_document_listing(
+        db,
+        search=q,
+        view=view,
+        status_filter=status_filter,
+        date_from=date_from,
+        date_to=date_to,
+        flow_group=flow_group,
+        limit=limit,
+        offset=offset,
+    )
+    return ArchiveListingResponse.model_validate(serialize_archived_documents_listing(listing))
 
 
 @router.get("/{document_id}", response_model=DocumentDetailResponse)

@@ -4,6 +4,7 @@ from datetime import datetime, time, timezone
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
+from app.models.archive import ArchivedDocument, ArchivedDocumentPayload
 from app.models.document import Document, DocumentLink, DocumentPayload, DocumentUserState
 from app.models.user import User
 
@@ -91,8 +92,27 @@ def _event_status(document: Document, step_code: str) -> str:
     return statuses[-1]
 
 
+def _event_status_any(document: Document, step_codes: list[str]) -> str:
+    statuses = [_event_status(document, code) for code in step_codes]
+    if "error" in statuses:
+        return "error"
+    if "success" in statuses:
+        return "success"
+    if "in_progress" in statuses:
+        return "in_progress"
+    return "pending"
+
+
 def _event_occurred_at(document: Document, step_code: str) -> datetime | None:
     timestamps = [_clamp_future_datetime(event.occurred_at) for event in document.events if event.step_code == step_code and event.occurred_at]
+    timestamps = [timestamp for timestamp in timestamps if timestamp]
+    if not timestamps:
+        return None
+    return max(timestamps)
+
+
+def _event_occurred_at_any(document: Document, step_codes: list[str]) -> datetime | None:
+    timestamps = [_event_occurred_at(document, code) for code in step_codes]
     timestamps = [timestamp for timestamp in timestamps if timestamp]
     if not timestamps:
         return None
@@ -149,14 +169,14 @@ def _with_step_deltas(steps: list[dict[str, object]]) -> list[dict[str, object]]
 def _ticket_case_steps(ticket: Document) -> list[dict[str, object]]:
     steps = [
         {
-            "code": "sirena_received",
-            "label": "Sirena приняла билет",
-            "status": _event_status(ticket, "sirena_received"),
-            "occurred_at": _event_occurred_at(ticket, "sirena_received"),
+            "code": "ticket_issued_in_sirena",
+            "label": "Билет выписан (Sirena Online Ticket)",
+            "status": _event_status_any(ticket, ["ticket_issued_in_sirena", "sirena_received"]),
+            "occurred_at": _event_occurred_at_any(ticket, ["ticket_issued_in_sirena", "sirena_received"]),
         },
         {
             "code": "ticket_copied_to_ftp",
-            "label": "Билет переместился на FTP",
+            "label": "Билет перемещен на FTP",
             "status": _event_status(ticket, "ticket_copied_to_ftp"),
             "occurred_at": _event_occurred_at(ticket, "ticket_copied_to_ftp"),
         },
@@ -177,6 +197,12 @@ def _ticket_case_steps(ticket: Document) -> list[dict[str, object]]:
             "label": "Реализация отправлена в 1С",
             "status": _event_status(ticket, "realization_copied_to_smb"),
             "occurred_at": _event_occurred_at(ticket, "realization_copied_to_smb"),
+        },
+        {
+            "code": "realization_accepted_by_1c",
+            "label": "1С принял реализацию",
+            "status": _event_status(ticket, "realization_accepted_by_1c"),
+            "occurred_at": _event_occurred_at(ticket, "realization_accepted_by_1c"),
         },
     ]
     return _with_step_deltas(steps)
@@ -408,6 +434,85 @@ def build_document_listing(
     filtered_count = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
     rows = db.execute(
         stmt.order_by(Document.occurred_at.desc().nullslast(), Document.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+
+    return {
+        "rows": rows,
+        "counters": counters,
+        "total_count": len(counter_rows),
+        "filtered_count": int(filtered_count),
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < int(filtered_count),
+    }
+
+
+def build_archived_document_listing(
+    db: Session,
+    *,
+    search: str | None = None,
+    view: str = "all",
+    status_filter: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    flow_group: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, object]:
+    base_stmt = (
+        select(ArchivedDocument, ArchivedDocumentPayload)
+        .join(ArchivedDocumentPayload, ArchivedDocumentPayload.document_id == ArchivedDocument.id, isouter=True)
+    )
+    if flow_group:
+        base_stmt = base_stmt.where(ArchivedDocument.flow_group == flow_group)
+
+    counter_rows = db.execute(base_stmt.with_only_columns(ArchivedDocument.status)).all()
+    counters = Counter()
+    for status, in counter_rows:
+        counters[status] += 1
+
+    stmt = base_stmt
+    if status_filter:
+        stmt = stmt.where(ArchivedDocument.status == status_filter)
+    elif view == "errors":
+        stmt = stmt.where(ArchivedDocument.status == "error")
+    elif view == "success":
+        stmt = stmt.where(ArchivedDocument.status == "success")
+    elif view == "active":
+        stmt = stmt.where(ArchivedDocument.status.in_(["in_progress", "error"]))
+
+    if date_from:
+        parsed_from = _parse_date_start(date_from)
+        if parsed_from:
+            stmt = stmt.where(ArchivedDocument.occurred_at >= parsed_from)
+    if date_to:
+        parsed_to = _parse_date_end(date_to)
+        if parsed_to:
+            stmt = stmt.where(ArchivedDocument.occurred_at <= parsed_to)
+
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                ArchivedDocument.title.ilike(pattern),
+                ArchivedDocument.file_name.ilike(pattern),
+                ArchivedDocument.business_key.ilike(pattern),
+                ArchivedDocumentPayload.passenger_name.ilike(pattern),
+                ArchivedDocumentPayload.ticket_number.ilike(pattern),
+                ArchivedDocumentPayload.exchange_ticket_number.ilike(pattern),
+                ArchivedDocumentPayload.pnr.ilike(pattern),
+                ArchivedDocumentPayload.mom_number.ilike(pattern),
+                ArchivedDocumentPayload.payment_number.ilike(pattern),
+                ArchivedDocumentPayload.payment_purpose.ilike(pattern),
+                ArchivedDocumentPayload.client_name.ilike(pattern),
+            )
+        )
+
+    filtered_count = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    rows = db.execute(
+        stmt.order_by(ArchivedDocument.archived_at.desc(), ArchivedDocument.occurred_at.desc().nullslast())
         .offset(offset)
         .limit(limit)
     ).all()

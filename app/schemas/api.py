@@ -140,6 +140,22 @@ class DocumentsListingResponse(BaseModel):
     has_more: bool
 
 
+class ArchivedDocumentRowResponse(BaseModel):
+    document: DocumentResponse
+    state: DocumentStateResponse | None
+    archived_at: datetime
+
+
+class ArchiveListingResponse(BaseModel):
+    rows: list[ArchivedDocumentRowResponse]
+    counters: dict[str, int]
+    total_count: int
+    filtered_count: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
 class DocumentDetailResponse(BaseModel):
     document: DocumentResponse
     root_ticket: DocumentResponse

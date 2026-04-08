@@ -169,11 +169,11 @@ function TicketCards({ listing, onOpenDocument }) {
 
   return (
     <section className="cards-grid">
-      {entries.map((entry) => {
+      {entries.map((entry, index) => {
         if (entry.entry_type === "ticket_case" && entry.ticket_case) {
           const caseItem = entry.ticket_case;
           return (
-            <article key={entry.entry_id} className="card">
+            <article key={entry.entry_id} className="card animated-card" style={{ "--stagger": index }}>
               <HeaderBlock
                 title={caseItem.ticket.payload?.passenger_name || caseItem.ticket.title || caseItem.ticket.file_name}
                 subtitle={`Билет: ${caseItem.ticket.payload?.ticket_number || "—"} · PNR: ${caseItem.ticket.payload?.pnr || "—"}`}
@@ -229,11 +229,13 @@ function PaymentCards({ listing, onOpenDocument }) {
   const rows = Array.isArray(listing?.rows) ? listing.rows : [];
   return (
     <section className="cards-grid">
-      {rows.map((row) => (
-        <article key={row.document.id} className="card">
+      {rows.map((row, index) => {
+        const entries = Array.isArray(row.document.payload?.extra_json?.entries) ? row.document.payload.extra_json.entries : [];
+        return (
+        <article key={row.document.id} className="card animated-card" style={{ "--stagger": index }}>
           <HeaderBlock
             title={row.document.title || row.document.file_name}
-            subtitle={`${row.document.payload?.payment_number || "без номера"} · ${row.document.payload?.client_name || "без контрагента"}`}
+            subtitle={row.document.file_name}
             right={<StatusPill status={row.document.status} />}
           />
           <div className="row-actions">
@@ -243,6 +245,42 @@ function PaymentCards({ listing, onOpenDocument }) {
             <button className="ghost" onClick={() => onOpenDocument(row.document.id)} type="button">
               Детали
             </button>
+          </div>
+
+          {entries.length > 0 && (
+            <div className="payment-lines">
+              {entries.map((item, itemIndex) => (
+                <small key={`${row.document.id}-entry-${itemIndex}`}>
+                  #{item.number || "без номера"} · {item.direction || "unknown"} · {item.amount ?? "—"} · {item.mom_ref || "без MOM"}
+                </small>
+              ))}
+            </div>
+          )}
+        </article>
+      );
+      })}
+    </section>
+  );
+}
+
+function ArchiveCards({ listing }) {
+  const rows = Array.isArray(listing?.rows) ? listing.rows : [];
+  return (
+    <section className="cards-grid">
+      {rows.map((row, index) => (
+        <article key={row.document.id} className="card animated-card" style={{ "--stagger": index }}>
+          <HeaderBlock
+            title={row.document.title || row.document.file_name}
+            subtitle={`${row.document.doc_type} · ${row.document.flow_group}`}
+            right={<StatusPill status={row.document.status} />}
+          />
+          <div className="row-actions">
+            <small>Архивировано: {formatDate(row.archived_at)}</small>
+            <small>Файл: {row.document.file_name}</small>
+          </div>
+          <div className="row-actions">
+            <small>PNR: {row.document.payload?.pnr || "—"} · MOM: {row.document.payload?.mom_number || "—"}</small>
+            <small>Платежка: {row.document.payload?.payment_number || "—"}</small>
           </div>
         </article>
       ))}
@@ -461,7 +499,12 @@ export default function App() {
     }
 
     const requestId = ++requestIdRef.current;
-    const endpoint = activeTab === "tickets" ? "/api/documents/tickets" : "/api/documents/payments";
+    const endpoint =
+      activeTab === "tickets"
+        ? "/api/documents/tickets"
+        : activeTab === "payments"
+          ? "/api/documents/payments"
+          : "/api/documents/archive";
     const query = buildQuery({ ...filters, offset, limit });
 
     if (append) {
@@ -756,6 +799,16 @@ export default function App() {
               <button className={activeTab === "payments" ? "active" : ""} onClick={() => setActiveTab("payments")} type="button">
                 Платежки
               </button>
+              <button
+                className={activeTab === "archive" ? "active" : ""}
+                onClick={() => {
+                  setActiveTab("archive");
+                  setFilters((prev) => ({ ...prev, view: "all" }));
+                }}
+                type="button"
+              >
+                Архив
+              </button>
             </div>
 
             <div className="filters">
@@ -789,6 +842,7 @@ export default function App() {
 
           {activeTab === "tickets" && listing && <TicketCards listing={listing} onOpenDocument={openDocument} />}
           {activeTab === "payments" && listing && <PaymentCards listing={listing} onOpenDocument={openDocument} />}
+          {activeTab === "archive" && listing && <ArchiveCards listing={listing} />}
 
           <div ref={loadMoreRef} className="list-end">
             {loadingMore && <span>Подгружаем еще...</span>}

@@ -165,6 +165,48 @@ def serialize_documents_listing(raw_listing: dict[str, object]) -> dict[str, obj
     }
 
 
+def serialize_archived_documents_listing(raw_listing: dict[str, object]) -> dict[str, object]:
+    rows = []
+    for document, payload in raw_listing["rows"]:
+        rows.append(
+            {
+                "document": {
+                    "id": document.id,
+                    "doc_type": document.doc_type,
+                    "flow_group": document.flow_group,
+                    "source_system": document.source_system,
+                    "status": document.status,
+                    "current_step": document.current_step,
+                    "title": document.title,
+                    "file_name": document.file_name,
+                    "file_path": document.file_path,
+                    "file_size": document.file_size,
+                    "business_key": document.business_key,
+                    "error_message": document.error_message,
+                    "occurred_at": document.occurred_at,
+                    "completed_at": document.completed_at,
+                    "created_at": document.created_at,
+                    "updated_at": document.updated_at,
+                    "payload": serialize_payload(payload),
+                    "events": None,
+                },
+                "state": None,
+                "archived_at": document.archived_at,
+            }
+        )
+
+    counters = {key: int(value) for key, value in dict(raw_listing["counters"]).items()}
+    return {
+        "rows": rows,
+        "counters": counters,
+        "total_count": raw_listing["total_count"],
+        "filtered_count": raw_listing["filtered_count"],
+        "offset": raw_listing["offset"],
+        "limit": raw_listing["limit"],
+        "has_more": raw_listing["has_more"],
+    }
+
+
 def serialize_document_detail(context: dict[str, object]) -> dict[str, object]:
     return {
         "document": serialize_document(context["document"], include_events=True),

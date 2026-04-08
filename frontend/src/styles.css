@@ -291,6 +291,13 @@ select {
   padding: 16px;
 }
 
+.animated-card {
+  opacity: 0;
+  transform: translateY(10px) scale(0.995);
+  animation: card-in 0.36s cubic-bezier(0.2, 0.72, 0.2, 1) forwards;
+  animation-delay: calc(var(--stagger, 0) * 35ms);
+}
+
 .card.orphan {
   border-style: dashed;
 }
@@ -335,6 +342,41 @@ select {
   padding: 10px;
   display: grid;
   gap: 3px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.step::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: var(--line);
+  transition: width 0.35s ease;
+}
+
+.step.status-success::after {
+  width: 100%;
+  background: linear-gradient(90deg, #24b36b, #109e5d);
+}
+
+.step.status-error::after {
+  width: 100%;
+  background: linear-gradient(90deg, #e85e54, #b42318);
+}
+
+.step.status-in_progress::after,
+.step.status-pending::after {
+  width: 52%;
+  background: linear-gradient(90deg, #f6be62, #d88f1d);
+}
+
+.step:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(17, 33, 61, 0.08);
 }
 
 .step small {
@@ -391,6 +433,7 @@ select {
 .status-pending {
   color: var(--warn);
   background: var(--warn-soft);
+  animation: pulse-in-progress 1.4s ease-in-out infinite;
 }
 
 .detail-headline {
@@ -413,6 +456,7 @@ select {
   align-items: start;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+  animation: timeline-fade 0.28s ease both;
 }
 
 .timeline-row p {
@@ -529,6 +573,52 @@ select {
 
 .muted-line {
   color: var(--muted);
+}
+
+.payment-lines {
+  margin-top: 10px;
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: #f8faff;
+}
+
+.payment-lines small {
+  color: var(--muted);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pulse-in-progress {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(217, 143, 29, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(217, 143, 29, 0.18);
+  }
+}
+
+@keyframes timeline-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 1024px) {
