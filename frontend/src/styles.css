@@ -266,6 +266,10 @@ select {
 
 .overview-modal {
   width: min(1260px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
 }
 
 .overview-modal .modal-top p {
@@ -301,6 +305,7 @@ select {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
   gap: 12px;
+  min-height: 0;
 }
 
 .overview-table-panel {
@@ -308,10 +313,13 @@ select {
   border-radius: 14px;
   padding: 12px;
   background: #fbfdff;
+  min-height: 0;
+  display: grid;
+  align-content: start;
 }
 
 .overview-table-wrap {
-  max-height: 420px;
+  max-height: 52vh;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -320,7 +328,8 @@ select {
 .overview-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 460px;
+  min-width: 580px;
+  table-layout: fixed;
 }
 
 .overview-table thead th {
@@ -346,9 +355,35 @@ select {
 
 .overview-table .path {
   font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overview-table .col-folder-name {
+  width: 28%;
+}
+
+.overview-table .col-folder-path {
+  width: 42%;
+}
+
+.overview-table .col-folder-count {
+  width: 12%;
+}
+
+.overview-table .col-folder-state {
+  width: 18%;
+}
+
+.overview-table .col-metric-name {
+  width: 64%;
+}
+
+.overview-table .col-metric-num {
+  width: 12%;
 }
 
 .toolbar {

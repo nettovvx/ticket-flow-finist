@@ -267,6 +267,12 @@ function OperationsOverviewModal({ open, overview, loading, onClose, onRefresh }
             <HeaderBlock title="Очереди XML по папкам" subtitle={`Папок в мониторинге: ${folders.length}`} />
             <div className="overview-table-wrap">
               <table className="overview-table">
+                <colgroup>
+                  <col className="col-folder-name" />
+                  <col className="col-folder-path" />
+                  <col className="col-folder-count" />
+                  <col className="col-folder-state" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Папка</th>
@@ -279,7 +285,9 @@ function OperationsOverviewModal({ open, overview, loading, onClose, onRefresh }
                   {folders.map((folder) => (
                     <tr key={folder.key}>
                       <td>{folder.label}</td>
-                      <td className="path">{folder.path}</td>
+                      <td className="path" title={folder.path}>
+                        {folder.path}
+                      </td>
                       <td>
                         <span className="count-badge">{folder.xml_count}</span>
                       </td>
@@ -301,6 +309,12 @@ function OperationsOverviewModal({ open, overview, loading, onClose, onRefresh }
             <HeaderBlock title="Обработка за день" subtitle={`Обновлено: ${formatDate(overview?.generated_at)}`} />
             <div className="overview-table-wrap">
               <table className="overview-table">
+                <colgroup>
+                  <col className="col-metric-name" />
+                  <col className="col-metric-num" />
+                  <col className="col-metric-num" />
+                  <col className="col-metric-num" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Этап</th>
@@ -863,6 +877,23 @@ export default function App() {
       .catch((eventError) => setAdminMessage(eventError.message))
       .finally(() => setUsersLoading(false));
   }, [user, settingsOpen, settingsTab]);
+
+  useEffect(() => {
+    if (!overviewOpen) {
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+      return;
+    }
+
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    document.body.style.paddingRight = `${Math.max(0, scrollbarWidth)}px`;
+
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+    };
+  }, [overviewOpen]);
 
   async function fetchMonitorListing({ offset = 0, limit = PAGE_SIZE, append = false, silent = false } = {}) {
     if (!user) {
