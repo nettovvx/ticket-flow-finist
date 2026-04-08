@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
@@ -21,6 +21,11 @@ def _user_response(user: User) -> UserResponse:
         is_active=user.is_active,
         last_login_at=user.last_login_at,
     )
+
+
+def _active_admins_count(db: Session) -> int:
+    total = db.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active.is_(True)))
+    return int(total or 0)
 
 
 @router.get("/users", response_model=list[UserResponse])
@@ -74,6 +79,8 @@ def update_user(
     account = db.get(User, user_id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+    if account.role == "admin" and payload.role != "admin" and _active_admins_count(db) <= 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя изменить роль последнего администратора")
 
     old_role = account.role
     account.role = payload.role
@@ -99,6 +106,8 @@ def delete_user(user_id: str, db: Session = Depends(get_db), admin: User = Depen
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
     if account.id == admin.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя удалить текущего администратора")
+    if account.role == "admin" and _active_admins_count(db) <= 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя удалить последнего администратора")
 
     username = account.username
     db.query(DocumentUserState).filter(DocumentUserState.user_id == account.id).delete(synchronize_session=False)

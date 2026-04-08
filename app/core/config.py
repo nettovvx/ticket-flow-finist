@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     ftp_tickets_processed_dir: Path = Field(default=Path("/srv/ftp/tickets/processed"), alias="FTP_TICKETS_PROCESSED_DIR")
     ftp_tickets_error_dir: Path = Field(default=Path("/srv/ftp/tickets/error"), alias="FTP_TICKETS_ERROR_DIR")
 
-    ftp_realisations_dir: Path = Field(default=Path("/srv/ftp/realisations"), alias="FTP_REALISATIONS_DIR")
+    ftp_realisations_dir: Path = Field(default=Path("/srv/ftp/realizations"), alias="FTP_REALISATIONS_DIR")
     onec_realisations_target_dir: Path = Field(default=Path("/mnt/1c-gds"), alias="ONEC_REALISATIONS_TARGET_DIR")
     onec_realisations_archive_dir: Path = Field(default=Path("/mnt/1c-gds/archive"), alias="ONEC_REALISATIONS_ARCHIVE_DIR")
     onec_realisations_bad_dir: Path = Field(default=Path("/mnt/1c-gds/bad"), alias="ONEC_REALISATIONS_BAD_DIR")

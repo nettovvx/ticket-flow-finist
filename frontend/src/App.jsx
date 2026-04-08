@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import iconAccounts from "./assets/icons/accounts.svg";
+import iconArchive from "./assets/icons/archive.svg";
+import iconClose from "./assets/icons/close.svg";
+import iconPayments from "./assets/icons/payments.svg";
+import iconSettings from "./assets/icons/settings.svg";
+import iconTickets from "./assets/icons/tickets.svg";
 
 const PAGE_SIZE = 50;
 const AUTO_REFRESH_MS = 15000;
@@ -15,13 +21,6 @@ const HEADER_LOGOS = [
   { src: "/logo/nettovvx-studio.png", alt: "Nettovvx Studio", caption: "nettovvx-studio" },
   { src: "/logo/finist.png", alt: "Finist", caption: "finist" },
 ];
-
-function getPathPage(pathname, role) {
-  if (role === "admin" && pathname.startsWith("/users")) {
-    return "users";
-  }
-  return "monitor";
-}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -179,6 +178,15 @@ function getLoadedCount(listing, activeTab) {
   return Array.isArray(listing.rows) ? listing.rows.length : 0;
 }
 
+function IconLabel({ icon, alt, children }) {
+  return (
+    <span className="tab-button-content">
+      <img src={icon} alt={alt} className="icon-inline" />
+      <span>{children}</span>
+    </span>
+  );
+}
+
 function TicketCards({ listing, onOpenDocument }) {
   const entries = Array.isArray(listing?.entries) ? listing.entries : [];
 
@@ -247,32 +255,33 @@ function PaymentCards({ listing, onOpenDocument }) {
       {rows.map((row, index) => {
         const entries = Array.isArray(row.document.payload?.extra_json?.entries) ? row.document.payload.extra_json.entries : [];
         return (
-        <article key={row.document.id} className="card animated-card" style={{ "--stagger": index }}>
-          <HeaderBlock
-            title={row.document.title || row.document.file_name}
-            subtitle={row.document.file_name}
-            right={<StatusPill status={row.document.status} />}
-          />
-          <div className="row-actions">
-            <small>
-              MOM: {row.document.payload?.mom_number || "—"} · Сумма: {row.document.payload?.amount ?? "—"} {row.document.payload?.currency || ""}
-            </small>
-            <button className="ghost" onClick={() => onOpenDocument(row.document.id)} type="button">
-              Детали
-            </button>
-          </div>
-
-          {entries.length > 0 && (
-            <div className="payment-lines">
-              {entries.map((item, itemIndex) => (
-                <small key={`${row.document.id}-entry-${itemIndex}`}>
-                  #{item.number || "без номера"} · {item.direction || "unknown"} · {item.amount ?? "—"} · {item.mom_ref || "без MOM"}
-                </small>
-              ))}
+          <article key={row.document.id} className="card animated-card" style={{ "--stagger": index }}>
+            <HeaderBlock
+              title={row.document.title || row.document.file_name}
+              subtitle={row.document.file_name}
+              right={<StatusPill status={row.document.status} />}
+            />
+            <div className="row-actions">
+              <small>
+                MOM: {row.document.payload?.mom_number || "—"} · Сумма: {row.document.payload?.amount ?? "—"}{" "}
+                {row.document.payload?.currency || ""}
+              </small>
+              <button className="ghost" onClick={() => onOpenDocument(row.document.id)} type="button">
+                Детали
+              </button>
             </div>
-          )}
-        </article>
-      );
+
+            {entries.length > 0 && (
+              <div className="payment-lines">
+                {entries.map((item, itemIndex) => (
+                  <small key={`${row.document.id}-entry-${itemIndex}`}>
+                    #{item.number || "без номера"} · {item.direction || "unknown"} · {item.amount ?? "—"} · {item.mom_ref || "без MOM"}
+                  </small>
+                ))}
+              </div>
+            )}
+          </article>
+        );
       })}
     </section>
   );
@@ -313,8 +322,9 @@ function DetailModal({ user, detail, loading, onClose, onHide, onUnhide }) {
       <section className="modal-card" onClick={(event) => event.stopPropagation()}>
         <div className="modal-top">
           <h2>Детализация документа</h2>
-          <button className="ghost" type="button" onClick={onClose}>
-            Закрыть
+          <button className="ghost icon-button" type="button" onClick={onClose}>
+            <img src={iconClose} alt="Закрыть" className="icon-inline" />
+            <span>Закрыть</span>
           </button>
         </div>
 
@@ -385,7 +395,7 @@ function UsersPage({ currentUser, users, loading, message, onCreate, onRoleChang
   return (
     <section className="users-page">
       <article className="admin-panel">
-        <HeaderBlock title="Создать пользователя" subtitle="Доступно только администраторам" />
+        <HeaderBlock title="Создать пользователя" subtitle="Администраторская операция" />
         <form className="inline-form" onSubmit={submitCreate}>
           <input
             placeholder="Логин"
@@ -417,7 +427,9 @@ function UsersPage({ currentUser, users, loading, message, onCreate, onRoleChang
             <div key={item.id} className="user-row expanded">
               <div>
                 <strong>{item.username}</strong>
-                <small>{item.is_active ? "active" : "inactive"} · последний вход: {formatDate(item.last_login_at)}</small>
+                <small>
+                  {item.is_active ? "active" : "inactive"} · последний вход: {formatDate(item.last_login_at)}
+                </small>
               </div>
 
               <select value={item.role} onChange={(event) => onRoleChange(item.id, event.target.value)} disabled={busyUserId === item.id}>
@@ -448,11 +460,81 @@ function UsersPage({ currentUser, users, loading, message, onCreate, onRoleChang
   );
 }
 
+function SettingsModal({
+  user,
+  open,
+  activeTab,
+  setActiveTab,
+  users,
+  loading,
+  message,
+  onClose,
+  onCreate,
+  onRoleChange,
+  onDelete,
+}) {
+  if (!open) {
+    return null;
+  }
+
+  const tabs = [{ id: "accounts", label: "Управление учетными записями", icon: iconAccounts }];
+
+  return (
+    <div className="modal-backdrop settings-backdrop" onClick={onClose}>
+      <section className="modal-card settings-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-top">
+          <div className="modal-heading-icon">
+            <img src={iconSettings} alt="Настройки" className="icon-inline" />
+            <div>
+              <h2>Настройки</h2>
+              <p>Системные параметры и управление доступами</p>
+            </div>
+          </div>
+          <button className="ghost icon-button" type="button" onClick={onClose}>
+            <img src={iconClose} alt="Закрыть" className="icon-inline" />
+            <span>Закрыть</span>
+          </button>
+        </div>
+
+        <div className="settings-tabs" role="tablist" aria-label="Вкладки настроек">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={activeTab === tab.id ? "active" : ""}
+              onClick={() => setActiveTab(tab.id)}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+            >
+              <IconLabel icon={tab.icon} alt={tab.label}>
+                {tab.label}
+              </IconLabel>
+            </button>
+          ))}
+        </div>
+
+        <div className="settings-body">
+          {user.role === "admin" && activeTab === "accounts" && (
+            <UsersPage
+              currentUser={user}
+              users={users}
+              loading={loading}
+              message={message}
+              onCreate={onCreate}
+              onRoleChange={onRoleChange}
+              onDelete={onDelete}
+            />
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
-  const [pagePath, setPagePath] = useState(window.location.pathname);
 
   const [login, setLogin] = useState({ username: "admin", password: "admin123" });
   const [activeTab, setActiveTab] = useState("tickets");
@@ -467,6 +549,9 @@ export default function App() {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("accounts");
+
   const [adminUsers, setAdminUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
@@ -474,16 +559,9 @@ export default function App() {
   const loadMoreRef = useRef(null);
   const requestIdRef = useRef(0);
 
-  const currentPage = getPathPage(pagePath, user?.role);
   const counters = useMemo(() => listing?.counters ?? {}, [listing]);
   const filteredCount = listing?.filtered_count ?? 0;
   const totalCount = listing?.total_count ?? 0;
-
-  useEffect(() => {
-    const handler = () => setPagePath(window.location.pathname);
-    window.addEventListener("popstate", handler);
-    return () => window.removeEventListener("popstate", handler);
-  }, []);
 
   useEffect(() => {
     api("/api/auth/me")
@@ -492,24 +570,66 @@ export default function App() {
       .finally(() => setAuthLoading(false));
   }, []);
 
-  function navigate(path) {
-    if (window.location.pathname !== path) {
-      window.history.pushState({}, "", path);
+  useEffect(() => {
+    if (!user) {
+      return;
     }
-    setPagePath(path);
-  }
+    setDetail(null);
+    fetchMonitorListing({ offset: 0, limit: PAGE_SIZE });
+  }, [user, activeTab, filters]);
 
   useEffect(() => {
     if (!user) {
       return;
     }
-    if (user.role !== "admin" && currentPage === "users") {
-      navigate("/");
+    const intervalId = window.setInterval(() => {
+      const currentLimit = Math.max(getLoadedCount(listing, activeTab), PAGE_SIZE);
+      fetchMonitorListing({ offset: 0, limit: currentLimit, silent: true });
+    }, AUTO_REFRESH_MS);
+    return () => window.clearInterval(intervalId);
+  }, [user, activeTab, filters, listing]);
+
+  useEffect(() => {
+    if (!user || !loadMoreRef.current) {
+      return undefined;
     }
-  }, [user, currentPage]);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const firstEntry = entries[0];
+        if (!firstEntry?.isIntersecting || loading || loadingMore || !listing?.has_more) {
+          return;
+        }
+        fetchMonitorListing({
+          offset: getLoadedCount(listing, activeTab),
+          limit: PAGE_SIZE,
+          append: true,
+          silent: true,
+        });
+      },
+      { rootMargin: "320px 0px" },
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [user, activeTab, listing, loading, loadingMore, filters]);
+
+  useEffect(() => {
+    if (!user || user.role !== "admin" || !settingsOpen || settingsTab !== "accounts") {
+      return;
+    }
+    setUsersLoading(true);
+    api("/api/admin/users")
+      .then((data) => {
+        setAdminUsers(data);
+        setAdminMessage("");
+      })
+      .catch((eventError) => setAdminMessage(eventError.message))
+      .finally(() => setUsersLoading(false));
+  }, [user, settingsOpen, settingsTab]);
 
   async function fetchMonitorListing({ offset = 0, limit = PAGE_SIZE, append = false, silent = false } = {}) {
-    if (!user || currentPage !== "monitor") {
+    if (!user) {
       return;
     }
 
@@ -557,66 +677,8 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    if (!user || currentPage !== "monitor") {
-      return;
-    }
-    setDetail(null);
-    fetchMonitorListing({ offset: 0, limit: PAGE_SIZE });
-  }, [user, currentPage, activeTab, filters]);
-
-  useEffect(() => {
-    if (!user || currentPage !== "monitor") {
-      return;
-    }
-    const intervalId = window.setInterval(() => {
-      const currentLimit = Math.max(getLoadedCount(listing, activeTab), PAGE_SIZE);
-      fetchMonitorListing({ offset: 0, limit: currentLimit, silent: true });
-    }, AUTO_REFRESH_MS);
-    return () => window.clearInterval(intervalId);
-  }, [user, currentPage, activeTab, filters, listing]);
-
-  useEffect(() => {
-    if (!user || currentPage !== "monitor" || !loadMoreRef.current) {
-      return undefined;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const firstEntry = entries[0];
-        if (!firstEntry?.isIntersecting || loading || loadingMore || !listing?.has_more) {
-          return;
-        }
-        fetchMonitorListing({
-          offset: getLoadedCount(listing, activeTab),
-          limit: PAGE_SIZE,
-          append: true,
-          silent: true,
-        });
-      },
-      { rootMargin: "320px 0px" },
-    );
-
-    observer.observe(loadMoreRef.current);
-    return () => observer.disconnect();
-  }, [user, currentPage, activeTab, listing, loading, loadingMore, filters]);
-
-  useEffect(() => {
-    if (!user || user.role !== "admin" || currentPage !== "users") {
-      return;
-    }
-    setUsersLoading(true);
-    api("/api/admin/users")
-      .then((data) => {
-        setAdminUsers(data);
-        setAdminMessage("");
-      })
-      .catch((eventError) => setAdminMessage(eventError.message))
-      .finally(() => setUsersLoading(false));
-  }, [user, currentPage]);
-
   async function refreshCurrentList() {
-    if (currentPage !== "monitor") {
+    if (!user) {
       return;
     }
     const currentLimit = Math.max(getLoadedCount(listing, activeTab), PAGE_SIZE);
@@ -632,7 +694,6 @@ export default function App() {
         body: JSON.stringify(login),
       });
       setUser(me);
-      navigate("/");
     } catch (loginError) {
       setAuthError(loginError.message);
     }
@@ -643,6 +704,7 @@ export default function App() {
     setUser(null);
     setListing(null);
     setDetail(null);
+    setSettingsOpen(false);
   }
 
   async function openDocument(documentId) {
@@ -770,112 +832,118 @@ export default function App() {
           <span className="user-chip">
             {user.username} · {user.role}
           </span>
+          {user.role === "admin" && (
+            <button
+              className="ghost icon-button"
+              onClick={() => {
+                setSettingsTab("accounts");
+                setSettingsOpen(true);
+              }}
+              type="button"
+            >
+              <img src={iconSettings} alt="Настройки" className="icon-inline" />
+              <span>Настройки</span>
+            </button>
+          )}
           <button className="ghost" onClick={onLogout} type="button">
             Выйти
           </button>
         </div>
       </header>
 
-      <section className="page-tabs">
-        <button className={currentPage === "monitor" ? "active" : ""} type="button" onClick={() => navigate("/")}>
-          Мониторинг
-        </button>
-        {user.role === "admin" && (
-          <button className={currentPage === "users" ? "active" : ""} type="button" onClick={() => navigate("/users")}>
-            Пользователи
-          </button>
-        )}
+      <section className="stats-row">
+        <article>
+          <small>В работе</small>
+          <strong>{counters.in_progress ?? 0}</strong>
+        </article>
+        <article>
+          <small>Ошибка</small>
+          <strong>{counters.error ?? 0}</strong>
+        </article>
+        <article>
+          <small>Успешно</small>
+          <strong>{counters.success ?? 0}</strong>
+        </article>
+        <article>
+          <small>Скрыто</small>
+          <strong>{counters.hidden ?? 0}</strong>
+        </article>
       </section>
 
-      {currentPage === "monitor" && (
-        <>
-          <section className="stats-row">
-            <article>
-              <small>В работе</small>
-              <strong>{counters.in_progress ?? 0}</strong>
-            </article>
-            <article>
-              <small>Ошибка</small>
-              <strong>{counters.error ?? 0}</strong>
-            </article>
-            <article>
-              <small>Успешно</small>
-              <strong>{counters.success ?? 0}</strong>
-            </article>
-            <article>
-              <small>Скрыто</small>
-              <strong>{counters.hidden ?? 0}</strong>
-            </article>
-          </section>
+      <section className="toolbar">
+        <div className="tabs">
+          <button className={activeTab === "tickets" ? "active" : ""} onClick={() => setActiveTab("tickets")} type="button">
+            <IconLabel icon={iconTickets} alt="Билеты">
+              Билеты и реализации
+            </IconLabel>
+          </button>
+          <button className={activeTab === "payments" ? "active" : ""} onClick={() => setActiveTab("payments")} type="button">
+            <IconLabel icon={iconPayments} alt="Платежки">
+              Платежки
+            </IconLabel>
+          </button>
+          <button
+            className={activeTab === "archive" ? "active" : ""}
+            onClick={() => {
+              setActiveTab("archive");
+              setFilters((prev) => ({ ...prev, status_preset: "all" }));
+            }}
+            type="button"
+          >
+            <IconLabel icon={iconArchive} alt="Архив">
+              Архив
+            </IconLabel>
+          </button>
+        </div>
 
-          <section className="toolbar">
-            <div className="tabs">
-              <button className={activeTab === "tickets" ? "active" : ""} onClick={() => setActiveTab("tickets")} type="button">
-                Билеты и реализации
-              </button>
-              <button className={activeTab === "payments" ? "active" : ""} onClick={() => setActiveTab("payments")} type="button">
-                Платежки
-              </button>
-              <button
-                className={activeTab === "archive" ? "active" : ""}
-                onClick={() => {
-                  setActiveTab("archive");
-                  setFilters((prev) => ({ ...prev, status_preset: "all" }));
-                }}
-                type="button"
-              >
-                Архив
-              </button>
-            </div>
+        <div className="filters">
+          <input placeholder="Поиск" value={filters.q} onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))} />
+          <select value={filters.status_preset} onChange={(event) => setFilters((prev) => ({ ...prev, status_preset: event.target.value }))}>
+            <option value="active_plus_errors">В работе + ошибки</option>
+            <option value="in_progress">В работе</option>
+            <option value="success">Успешные</option>
+            <option value="errors">Ошибки</option>
+            <option value="all">Все</option>
+          </select>
+          <input type="date" value={filters.date_from} onChange={(event) => setFilters((prev) => ({ ...prev, date_from: event.target.value }))} />
+          <input type="date" value={filters.date_to} onChange={(event) => setFilters((prev) => ({ ...prev, date_to: event.target.value }))} />
+        </div>
 
-            <div className="filters">
-              <input placeholder="Поиск" value={filters.q} onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))} />
-              <select value={filters.status_preset} onChange={(event) => setFilters((prev) => ({ ...prev, status_preset: event.target.value }))}>
-                <option value="active_plus_errors">В работе + ошибки</option>
-                <option value="in_progress">В работе</option>
-                <option value="success">Успешные</option>
-                <option value="errors">Ошибки</option>
-                <option value="all">Все</option>
-              </select>
-              <input type="date" value={filters.date_from} onChange={(event) => setFilters((prev) => ({ ...prev, date_from: event.target.value }))} />
-              <input type="date" value={filters.date_to} onChange={(event) => setFilters((prev) => ({ ...prev, date_to: event.target.value }))} />
-            </div>
+        <div className="results-meta">
+          <span>Найдено: {filteredCount}</span>
+          <span>Всего в разделе: {totalCount}</span>
+          {refreshing && <span>Обновляем…</span>}
+        </div>
+      </section>
 
-            <div className="results-meta">
-              <span>Найдено: {filteredCount}</span>
-              <span>Всего в разделе: {totalCount}</span>
-              {refreshing && <span>Обновляем…</span>}
-            </div>
-          </section>
+      {error && <div className="error-box">{error}</div>}
+      {loading && <div className="loading">Обновляем список...</div>}
 
-          {error && <div className="error-box">{error}</div>}
-          {loading && <div className="loading">Обновляем список...</div>}
+      {activeTab === "tickets" && listing && <TicketCards listing={listing} onOpenDocument={openDocument} />}
+      {activeTab === "payments" && listing && <PaymentCards listing={listing} onOpenDocument={openDocument} />}
+      {activeTab === "archive" && listing && <ArchiveCards listing={listing} />}
 
-          {activeTab === "tickets" && listing && <TicketCards listing={listing} onOpenDocument={openDocument} />}
-          {activeTab === "payments" && listing && <PaymentCards listing={listing} onOpenDocument={openDocument} />}
-          {activeTab === "archive" && listing && <ArchiveCards listing={listing} />}
-
-          <div ref={loadMoreRef} className="list-end">
-            {loadingMore && <span>Подгружаем еще...</span>}
-            {!loadingMore && listing?.has_more && <span>Прокрутите ниже, чтобы загрузить еще 50</span>}
-            {!listing?.has_more && filteredCount > 0 && <span>Все результаты загружены</span>}
-          </div>
-        </>
-      )}
-
-      {currentPage === "users" && user.role === "admin" && (
-        <UsersPage
-          currentUser={user}
-          users={adminUsers}
-          loading={usersLoading}
-          message={adminMessage}
-          onCreate={createUser}
-          onRoleChange={changeUserRole}
-          onDelete={deleteUser}
-        />
-      )}
+      <div ref={loadMoreRef} className="list-end">
+        {loadingMore && <span>Подгружаем еще...</span>}
+        {!loadingMore && listing?.has_more && <span>Прокрутите ниже, чтобы загрузить еще 50</span>}
+        {!listing?.has_more && filteredCount > 0 && <span>Все результаты загружены</span>}
+      </div>
 
       <DetailModal user={user} detail={detail} loading={detailLoading} onClose={() => setDetail(null)} onHide={hideDocument} onUnhide={unhideDocument} />
+
+      <SettingsModal
+        user={user}
+        open={settingsOpen}
+        activeTab={settingsTab}
+        setActiveTab={setSettingsTab}
+        users={adminUsers}
+        loading={usersLoading}
+        message={adminMessage}
+        onClose={() => setSettingsOpen(false)}
+        onCreate={createUser}
+        onRoleChange={changeUserRole}
+        onDelete={deleteUser}
+      />
     </main>
   );
 }

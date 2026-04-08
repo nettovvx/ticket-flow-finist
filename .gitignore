@@ -17,3 +17,4 @@ ticketflow.db
 # ticket payloads and integrations data
 *.xml
 2025-11-13/
+/icons/

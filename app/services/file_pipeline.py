@@ -110,8 +110,14 @@ def _hash_file(path: Path) -> str:
 
 
 def _file_created_at(path: Path) -> datetime:
+    # We intentionally capture the interaction timestamp (not filesystem ctime),
+    # because operational SLA in UI is based on pipeline actions.
     _ = path
     return _utc_now()
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _build_unique_destination(path: Path) -> Path:
@@ -764,6 +770,7 @@ class FilePipelineService:
             )
 
     def _update_payment_result(self, db: Session, file_path: Path, *, success: bool) -> None:
+        escaped_file_name = _escape_like(file_path.name)
         documents = db.scalars(
             select(Document)
             .where(
@@ -771,7 +778,7 @@ class FilePipelineService:
                 Document.source_system == "1c",
                 or_(
                     Document.file_name == file_path.name,
-                    Document.file_name.like(f"{file_path.name}:%"),
+                    Document.file_name.like(f"{escaped_file_name}:%", escape="\\"),
                 ),
             )
             .options(selectinload(Document.events))
@@ -827,8 +834,15 @@ class FilePipelineService:
                 document.completed_at = None
                 document.error_message = None
 
-                payload_data = self._parse_ticket_payload(moved_file)
-                self._apply_ticket_payload(document, payload_data)
+                try:
+                    payload_data = self._parse_ticket_payload(moved_file)
+                    self._apply_ticket_payload(document, payload_data)
+                except Exception:
+                    logger.warning("Unable to parse ticket payload from %s", moved_file, exc_info=True)
+                    if not document.title:
+                        document.title = moved_file.name
+                    if not document.business_key:
+                        document.business_key = moved_file.stem
 
                 _append_event(
                     document,
@@ -1175,7 +1189,11 @@ class FilePipelineService:
             try:
                 moved_file = self._move_file(source_file, self.settings.ftp_payments_dir)
                 occurred_at = _file_created_at(moved_file)
-                entries = self._parse_payments(moved_file)
+                try:
+                    entries = self._parse_payments(moved_file)
+                except Exception:
+                    logger.warning("Unable to parse payments payload from %s", moved_file, exc_info=True)
+                    entries = []
                 if not entries:
                     entries = [{"number": "unknown", "amount": None, "purpose": None, "mom_ref": None, "direction": None, "operation_type": None}]
 

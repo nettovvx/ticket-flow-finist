@@ -64,7 +64,7 @@ alembic upgrade head
 
 - `/opt/sirena-olt-client/received-files`
 - `/srv/ftp/tickets`
-- `/srv/ftp/realisations`
+- `/srv/ftp/realizations`
 - `/srv/ftp/payments`
 - `/mnt/1c-gds`
 - `/mnt/1c-payments`
@@ -87,7 +87,7 @@ alembic upgrade head
 
 ### Реализации
 
-- вход: `FTP_REALISATIONS_DIR` (например, `/srv/ftp/realisations`)
+- вход: `FTP_REALISATIONS_DIR` (например, `/srv/ftp/realizations`)
 - перенос в 1С: `ONEC_REALISATIONS_TARGET_DIR` (например, `/mnt/1c-gds`)
 - в мониторинге учитываются только те реализации, у которых найдена связь с уже известным билетом в системе (по `PNR`);
 - если связь не найдена, файл просто перемещается в `ONEC_REALISATIONS_TARGET_DIR` без создания карточки/документа в БД.
