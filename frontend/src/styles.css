@@ -242,10 +242,11 @@ select {
 
 .overview-backdrop {
   z-index: 115;
+  padding: clamp(8px, 2vh, 14px);
 }
 
 .overview-modal {
-  width: min(1460px, calc(100vw - 24px));
+  width: min(1600px, calc(100vw - 12px));
   max-height: min(88vh, 920px);
   overflow: hidden;
   display: grid;
