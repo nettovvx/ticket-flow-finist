@@ -5,8 +5,7 @@ const AUTO_REFRESH_MS = 15000;
 
 const INITIAL_FILTERS = {
   q: "",
-  view: "active",
-  status_filter: "",
+  status_preset: "active_plus_errors",
   date_from: "",
   date_to: "",
 };
@@ -55,6 +54,22 @@ function buildQuery(params) {
   }
   const query = searchParams.toString();
   return query ? `?${query}` : "";
+}
+
+function mapStatusPresetToQuery(statusPreset) {
+  switch (statusPreset) {
+    case "in_progress":
+      return { view: "active", status_filter: "in_progress" };
+    case "success":
+      return { view: "success", status_filter: "" };
+    case "errors":
+      return { view: "errors", status_filter: "" };
+    case "all":
+      return { view: "all", status_filter: "" };
+    case "active_plus_errors":
+    default:
+      return { view: "active", status_filter: "" };
+  }
 }
 
 function clampFutureDate(date) {
@@ -505,7 +520,9 @@ export default function App() {
         : activeTab === "payments"
           ? "/api/documents/payments"
           : "/api/documents/archive";
-    const query = buildQuery({ ...filters, offset, limit });
+    const { status_preset, ...baseFilters } = filters;
+    const statusQuery = mapStatusPresetToQuery(status_preset);
+    const query = buildQuery({ ...baseFilters, ...statusQuery, offset, limit });
 
     if (append) {
       setLoadingMore(true);
@@ -803,7 +820,7 @@ export default function App() {
                 className={activeTab === "archive" ? "active" : ""}
                 onClick={() => {
                   setActiveTab("archive");
-                  setFilters((prev) => ({ ...prev, view: "all" }));
+                  setFilters((prev) => ({ ...prev, status_preset: "all" }));
                 }}
                 type="button"
               >
@@ -813,18 +830,12 @@ export default function App() {
 
             <div className="filters">
               <input placeholder="Поиск" value={filters.q} onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))} />
-              <select value={filters.view} onChange={(event) => setFilters((prev) => ({ ...prev, view: event.target.value }))}>
-                <option value="active">В работе + ошибки</option>
-                <option value="errors">Только ошибки</option>
-                <option value="success">Только успешные</option>
-                <option value="hidden">Скрытые</option>
-                <option value="all">Все</option>
-              </select>
-              <select value={filters.status_filter} onChange={(event) => setFilters((prev) => ({ ...prev, status_filter: event.target.value }))}>
-                <option value="">Все статусы</option>
+              <select value={filters.status_preset} onChange={(event) => setFilters((prev) => ({ ...prev, status_preset: event.target.value }))}>
+                <option value="active_plus_errors">В работе + ошибки</option>
                 <option value="in_progress">В работе</option>
-                <option value="error">Ошибка</option>
-                <option value="success">Успешно</option>
+                <option value="success">Успешные</option>
+                <option value="errors">Ошибки</option>
+                <option value="all">Все</option>
               </select>
               <input type="date" value={filters.date_from} onChange={(event) => setFilters((prev) => ({ ...prev, date_from: event.target.value }))} />
               <input type="date" value={filters.date_to} onChange={(event) => setFilters((prev) => ({ ...prev, date_to: event.target.value }))} />
